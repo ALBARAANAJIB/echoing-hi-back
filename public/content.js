@@ -1,194 +1,216 @@
-// Enhanced YouTube extension with professional design and advanced long video summarization
+// Enhanced YouTube extension with security, reliability, and optimization improvements
+import ContentScriptManager from '../src/utils/contentScriptManager.js';
+import SecureApiManager from '../src/utils/secureApiManager.js';
+
+// Initialize managers
+const contentManager = ContentScriptManager.getInstance();
+const secureApi = SecureApiManager.getInstance();
+
 function injectSummarizationPanel() {
   // Check if we're on a YouTube video page
   if (!window.location.href.includes('youtube.com/watch')) {
     return;
   }
 
-  // Remove existing panel if it exists
-  const existingPanel = document.getElementById('youtube-enhancer-panel');
-  if (existingPanel) {
-    existingPanel.remove();
-  }
+  contentManager.injectElement(
+    'youtube-enhancer-panel',
+    () => {
+      // Remove existing panel if it exists
+      const existingPanel = document.getElementById('youtube-enhancer-panel');
+      if (existingPanel) {
+        existingPanel.remove();
+      }
 
-  // Wait for YouTube's secondary column to load
-  const secondaryColumn = document.querySelector('#secondary');
-  if (!secondaryColumn) {
-    setTimeout(injectSummarizationPanel, 1000);
-    return;
-  }
+      const secondaryColumn = document.querySelector('#secondary');
+      if (!secondaryColumn) {
+        throw new Error('Secondary column not found');
+      }
 
-  // Create the professional summarization panel
-  const panel = document.createElement('div');
-  panel.id = 'youtube-enhancer-panel';
-  panel.innerHTML = `
-    <div style="
-      background: #ffffff;
-      border-radius: 12px;
-      margin-bottom: 16px;
-      overflow: hidden;
-      border: 1px solid #e5e7eb;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', system-ui, sans-serif;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    ">
-      <!-- Professional Header -->
-      <div style="
-        background: #f9fafb;
-        padding: 16px 20px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        border-bottom: 1px solid #e5e7eb;
-      ">
+      // Create the professional summarization panel
+      const panel = document.createElement('div');
+      panel.id = 'youtube-enhancer-panel';
+      panel.innerHTML = `
         <div style="
-          width: 20px;
-          height: 20px;
-          background: #f3f4f6;
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 10px;
-          color: #374151;
-          font-weight: 600;
-          border: 1px solid #d1d5db;
-        ">AI</div>
-        <h3 style="
-          margin: 0;
-          font-size: 14px;
-          font-weight: 600;
-          color: #111827;
-          letter-spacing: -0.025em;
-        ">Video Summary</h3>
-      </div>
-      
-      <!-- Content -->
-      <div style="padding: 20px;">
-        <!-- Mode Selector -->
-        <div style="margin-bottom: 16px;">
-          <select id="detail-level" style="
-            width: 100%;
-            padding: 10px 14px;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            font-size: 13px;
-            background: #ffffff;
-            color: #111827;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-family: inherit;
-            appearance: none;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\" viewBox=\"0 0 10 10\"><path d=\"M8 3L5 6 2 3\" stroke=\"%23666\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>');
-            background-repeat: no-repeat;
-            background-position: right 12px center;
-            padding-right: 36px;
-          ">
-            <option value="quick">Quick Summary</option>
-            <option value="detailed" selected>Detailed Summary</option>
-          </select>
-        </div>
-        
-        <button id="summarize-video-btn" style="
-          width: 100%;
-          background: #f9fafb;
-          color: #374151;
-          border: 1px solid #d1d5db;
-          border-radius: 8px;
-          padding: 12px 16px;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          margin-bottom: 16px;
-          font-family: inherit;
-          letter-spacing: -0.025em;
-        " onmouseover="this.style.background='#f3f4f6'; this.style.borderColor='#9ca3af'" 
-           onmouseout="this.style.background='#f9fafb'; this.style.borderColor='#d1d5db'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l-.06.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
-          <span>Generate Summary</span>
-        </button>
-        
-        <div id="summary-loading" style="
-          display: none;
-          text-align: center;
-          padding: 24px;
-          background: #f9fafb;
-          border-radius: 8px;
-          border: 1px solid #f3f4f6;
-        ">
-          <div style="
-            width: 16px;
-            height: 16px;
-            border: 2px solid #f3f4f6;
-            border-top: 2px solid #6b7280;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 12px;
-          "></div>
-          <div style="
-            font-size: 12px; 
-            color: #6b7280;
-            font-weight: 400;
-          " id="loading-message">Analyzing video content...</div>
-        </div>
-        
-        <div id="summary-content" style="
-          display: none;
           background: #ffffff;
-          border-radius: 8px;
-          border: 1px solid #f3f4f6;
+          border-radius: 12px;
+          margin-bottom: 16px;
           overflow: hidden;
-        "></div>
-      </div>
-    </div>
-    
-    <style>
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      
-      #detail-level:focus {
-        outline: none;
-        border-color: #6b7280;
-        box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.1);
-      }
-    </style>
-  `;
+          border: 1px solid #e5e7eb;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', system-ui, sans-serif;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        ">
+          <!-- Professional Header -->
+          <div style="
+            background: #f9fafb;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #e5e7eb;
+          ">
+            <div style="
+              width: 20px;
+              height: 20px;
+              background: #f3f4f6;
+              border-radius: 4px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 10px;
+              color: #374151;
+              font-weight: 600;
+              border: 1px solid #d1d5db;
+            ">AI</div>
+            <h3 style="
+              margin: 0;
+              font-size: 14px;
+              font-weight: 600;
+              color: #111827;
+              letter-spacing: -0.025em;
+            ">Video Summary</h3>
+          </div>
+          
+          <!-- Content -->
+          <div style="padding: 20px;">
+            <!-- Mode Selector -->
+            <div style="margin-bottom: 16px;">
+              <select id="detail-level" style="
+                width: 100%;
+                padding: 10px 14px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: 13px;
+                background: #ffffff;
+                color: #111827;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-family: inherit;
+                appearance: none;
+                background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\" viewBox=\"0 0 10 10\"><path d=\"M8 3L5 6 2 3\" stroke=\"%23666\" stroke-width=\"1.5\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>');
+                background-repeat: no-repeat;
+                background-position: right 12px center;
+                padding-right: 36px;
+              ">
+                <option value="quick">Quick Summary</option>
+                <option value="detailed" selected>Detailed Summary</option>
+              </select>
+            </div>
+            
+            <button id="summarize-video-btn" style="
+              width: 100%;
+              background: #f9fafb;
+              color: #374151;
+              border: 1px solid #d1d5db;
+              border-radius: 8px;
+              padding: 12px 16px;
+              font-size: 13px;
+              font-weight: 500;
+              cursor: pointer;
+              transition: all 0.2s ease;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 8px;
+              margin-bottom: 16px;
+              font-family: inherit;
+              letter-spacing: -0.025em;
+            " onmouseover="this.style.background='#f3f4f6'; this.style.borderColor='#9ca3af'" 
+               onmouseout="this.style.background='#f9fafb'; this.style.borderColor='#d1d5db'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l-.06.06a1.65 1.65 0 0 0-.33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              <span>Generate Summary</span>
+            </button>
+            
+            <div id="summary-loading" style="
+              display: none;
+              text-align: center;
+              padding: 24px;
+              background: #f9fafb;
+              border-radius: 8px;
+              border: 1px solid #f3f4f6;
+            ">
+              <div style="
+                width: 16px;
+                height: 16px;
+                border: 2px solid #f3f4f6;
+                border-top: 2px solid #6b7280;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 12px;
+              "></div>
+              <div style="
+                font-size: 12px; 
+                color: #6b7280;
+                font-weight: 400;
+              " id="loading-message">Analyzing video content...</div>
+            </div>
+            
+            <div id="summary-content" style="
+              display: none;
+              background: #ffffff;
+              border-radius: 8px;
+              border: 1px solid #f3f4f6;
+              overflow: hidden;
+            "></div>
+          </div>
+        </div>
+        
+        <style>
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          
+          #detail-level:focus {
+            outline: none;
+            border-color: #6b7280;
+            box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.1);
+          }
+        </style>
+      `;
 
-  // Insert the panel at the top of the secondary column
-  secondaryColumn.insertBefore(panel, secondaryColumn.firstChild);
+      // Insert the panel at the top of the secondary column
+      secondaryColumn.insertBefore(panel, secondaryColumn.firstChild);
 
-  // Add event listeners
-  const summarizeBtn = document.getElementById('summarize-video-btn');
-  const loadingDiv = document.getElementById('summary-loading');
-  const contentDiv = document.getElementById('summary-content');
-  const loadingMessage = document.getElementById('loading-message');
-  const detailLevelSelect = document.getElementById('detail-level');
+      // Add event listeners with security measures
+      const summarizeBtn = document.getElementById('summarize-video-btn');
+      const loadingDiv = document.getElementById('summary-loading');
+      const contentDiv = document.getElementById('summary-content');
+      const loadingMessage = document.getElementById('loading-message');
+      const detailLevelSelect = document.getElementById('detail-level');
 
-  summarizeBtn?.addEventListener('click', async () => {
-    const currentUrl = window.location.href;
-    const detailLevel = detailLevelSelect.value;
-    
-    // Show loading
-    summarizeBtn.style.display = 'none';
-    loadingDiv.style.display = 'block';
-    contentDiv.style.display = 'none';
+      summarizeBtn?.addEventListener('click', async () => {
+        const currentUrl = window.location.href;
+        const detailLevel = detailLevelSelect.value;
+        
+        // Security: Validate URL and rate limit
+        if (!secureApi.validateYouTubeUrl(currentUrl)) {
+          showError(contentDiv, loadingDiv, summarizeBtn, 'Invalid YouTube URL');
+          return;
+        }
+        
+        if (!secureApi.checkRateLimit('summarize_click', 3, 60000)) {
+          showError(contentDiv, loadingDiv, summarizeBtn, 'Please wait before requesting another summary');
+          return;
+        }
+        
+        // Show loading
+        summarizeBtn.style.display = 'none';
+        loadingDiv.style.display = 'block';
+        contentDiv.style.display = 'none';
 
-    try {
-      await summarizeVideo(currentUrl, detailLevel, loadingMessage, contentDiv, loadingDiv, summarizeBtn);
-    } catch (error) {
-      console.error('Error:', error);
-      showError(contentDiv, loadingDiv, summarizeBtn, error.message);
-    }
-  });
+        try {
+          await summarizeVideo(currentUrl, detailLevel, loadingMessage, contentDiv, loadingDiv, summarizeBtn);
+        } catch (error) {
+          console.error('Error:', error);
+          showError(contentDiv, loadingDiv, summarizeBtn, error.message);
+        }
+      });
+    },
+    '#secondary'
+  );
 }
 
 // Enhanced prompts specifically designed for long video analysis like Google AI Studio
@@ -586,209 +608,177 @@ function injectLikedVideosButtons() {
     return;
   }
 
-  // Remove existing buttons if they exist
-  const existingButtons = document.getElementById('youtube-enhancer-liked-buttons');
-  if (existingButtons) {
-    existingButtons.remove();
-  }
-
-  // Wait for the action buttons area to load - more specific targeting
-  let insertionPoint = null;
-  
-  // Try to find the area with Play all and Shuffle buttons
-  const playShuffleContainer = document.querySelector('.ytd-playlist-header-renderer #buttons');
-  if (playShuffleContainer) {
-    insertionPoint = playShuffleContainer;
-  } else {
-    // Fallback to other selectors
-    const selectors = [
-      '.ytd-playlist-header-renderer .top-level-buttons',
-      '.ytd-playlist-header-renderer [role="button"]',
-      '#secondary-actions'
-    ];
-    
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        insertionPoint = element;
-        break;
+  contentManager.injectElement(
+    'youtube-enhancer-liked-buttons',
+    () => {
+      // Remove existing buttons if they exist
+      const existingButtons = document.getElementById('youtube-enhancer-liked-buttons');
+      if (existingButtons) {
+        existingButtons.remove();
       }
-    }
-  }
 
-  if (!insertionPoint) {
-    console.log('YouTube Enhancer: Insertion point not found, retrying...');
-    setTimeout(injectLikedVideosButtons, 2000);
-    return;
-  }
-
-  console.log('YouTube Enhancer: Injecting responsive YouTube-style buttons');
-
-  const buttonContainer = document.createElement('div');
-  buttonContainer.id = 'youtube-enhancer-liked-buttons';
-  buttonContainer.style.cssText = `
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-left: 8px;
-    align-items: center;
-    font-family: "Roboto", "Arial", sans-serif;
-    max-width: 300px;
-  `;
-
-  // Improved responsive buttons with shorter text and better sizing
-  buttonContainer.innerHTML = `
-    <button id="fetch-liked-videos" style="
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--yt-spec-text-primary, #0f0f0f);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 18px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.05, 0, 0, 1);
-      font-family: inherit;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      white-space: nowrap;
-      min-width: 100px;
-      max-width: 140px;
-    " 
-    onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0, 0, 0, 0.1)'" 
-    onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='translateY(0)'; this.style.boxShadow='none'"
-    onmousedown="this.style.transform='translateY(0)'"
-    onmouseup="this.style.transform='translateY(-1px)'">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      Fetch
-    </button>
-    
-    <button id="export-liked-videos" style="
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--yt-spec-text-primary, #0f0f0f);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 18px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.05, 0, 0, 1);
-      font-family: inherit;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      white-space: nowrap;
-      min-width: 100px;
-      max-width: 140px;
-    " 
-    onmouseover="this.style.background='rgba(255, 255, 255, 0.15)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0, 0, 0, 0.1)'" 
-    onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='translateY(0)'; this.style.boxShadow='none'"
-    onmousedown="this.style.transform='translateY(0)'"
-    onmouseup="this.style.transform='translateY(-1px)'">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-      Export
-    </button>
-  `;
-
-  // Insert the buttons next to the existing controls
-  insertionPoint.appendChild(buttonContainer);
-
-  // Add event listeners with proper functionality matching the main extension
-  const fetchBtn = document.getElementById('fetch-liked-videos');
-  const exportBtn = document.getElementById('export-liked-videos');
-
-  if (fetchBtn) {
-    fetchBtn.addEventListener('click', () => {
-      console.log('Fetch button clicked');
-      const originalContent = fetchBtn.innerHTML;
-      fetchBtn.disabled = true;
-      fetchBtn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;">
-          <path d="M21 12a9 9 0 11-6.219-8.56"/>
-        </svg>
-        Loading...
-      `;
+      // Wait for the action buttons area to load
+      let insertionPoint = null;
       
-      if (window.chrome?.runtime) {
-        chrome.runtime.sendMessage({ action: 'fetchLikedVideos' }, (response) => {
-          console.log('Fetch response:', response);
-          fetchBtn.disabled = false;
-          fetchBtn.innerHTML = originalContent;
+      const playShuffleContainer = document.querySelector('.ytd-playlist-header-renderer #buttons');
+      if (playShuffleContainer) {
+        insertionPoint = playShuffleContainer;
+      } else {
+        const selectors = [
+          '.ytd-playlist-header-renderer .top-level-buttons',
+          '.ytd-playlist-header-renderer [role="button"]',
+          '#secondary-actions'
+        ];
+        
+        for (const selector of selectors) {
+          const element = document.querySelector(selector);
+          if (element) {
+            insertionPoint = element;
+            break;
+          }
+        }
+      }
+
+      if (!insertionPoint) {
+        throw new Error('Insertion point not found');
+      }
+
+      // Create the professional liked videos buttons
+      const buttonContainer = document.createElement('div');
+      buttonContainer.id = 'youtube-enhancer-liked-buttons';
+      buttonContainer.style.cssText = `
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-left: 8px;
+        align-items: center;
+        font-family: "Roboto", "Arial", sans-serif;
+        max-width: 300px;
+      `;
+
+      buttonContainer.innerHTML = `
+        <button id="fetch-liked-videos" style="
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.1);
+          color: var(--yt-spec-text-primary, #0f0f0f);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 18px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s cubic-bezier(0.05, 0, 0, 1);
+          font-family: inherit;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          white-space: nowrap;
+          min-width: 100px;
+          max-width: 140px;
+        ">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Fetch
+        </button>
+        
+        <button id="export-liked-videos" style="
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.1);
+          color: var(--yt-spec-text-primary, #0f0f0f);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 18px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s cubic-bezier(0.05, 0, 0, 1);
+          font-family: inherit;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          white-space: nowrap;
+          min-width: 100px;
+          max-width: 140px;
+        ">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          Export
+        </button>
+      `;
+
+      insertionPoint.appendChild(buttonContainer);
+
+      // Add event listeners with security measures
+      const fetchBtn = document.getElementById('fetch-liked-videos');
+      const exportBtn = document.getElementById('export-liked-videos');
+
+      if (fetchBtn) {
+        fetchBtn.addEventListener('click', () => {
+          if (!secureApi.checkRateLimit('fetch_click', 2, 30000)) {
+            showEnhancedNotification('Please wait before fetching again', 'error', false);
+            return;
+          }
+
+          const originalContent = fetchBtn.innerHTML;
+          fetchBtn.disabled = true;
+          fetchBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;">
+              <path d="M21 12a9 9 0 11-6.219-8.56"/>
+            </svg>
+            Loading...
+          `;
           
-          if (response && response.success) {
-            showEnhancedNotification(
-              `✅ Videos fetched successfully!`,
-              'success',
-              true
-            );
-          } else {
-            showEnhancedNotification(
-              'Failed to fetch videos. Please try again.',
-              'error',
-              false
-            );
+          if (window.chrome?.runtime) {
+            chrome.runtime.sendMessage({ action: 'fetchLikedVideos' }, (response) => {
+              fetchBtn.disabled = false;
+              fetchBtn.innerHTML = originalContent;
+              
+              if (response && response.success) {
+                showEnhancedNotification('✅ Videos fetched successfully!', 'success', true);
+              } else {
+                showEnhancedNotification('Failed to fetch videos. Please try again.', 'error', false);
+              }
+            });
           }
         });
-      } else {
-        // Fallback for testing
-        setTimeout(() => {
-          fetchBtn.disabled = false;
-          fetchBtn.innerHTML = originalContent;
-          showEnhancedNotification('✅ Videos fetched successfully!', 'success', true);
-        }, 2000);
       }
-    });
-  }
 
-  if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
-      console.log('Export button clicked');
-      const originalContent = exportBtn.innerHTML;
-      exportBtn.disabled = true;
-      exportBtn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;">
-          <path d="M21 12a9 9 0 11-6.219-8.56"/>
-        </svg>
-        Exporting...
-      `;
-      
-      if (window.chrome?.runtime) {
-        chrome.runtime.sendMessage({ action: 'exportData' }, (response) => {
-          console.log('Export response:', response);
-          exportBtn.disabled = false;
-          exportBtn.innerHTML = originalContent;
+      if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+          if (!secureApi.checkRateLimit('export_click', 2, 30000)) {
+            showEnhancedNotification('Please wait before exporting again', 'error', false);
+            return;
+          }
+
+          const originalContent = exportBtn.innerHTML;
+          exportBtn.disabled = true;
+          exportBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 1s linear infinite;">
+              <path d="M21 12a9 9 0 11-6.219-8.56"/>
+            </svg>
+            Exporting...
+          `;
           
-          showEnhancedNotification(
-            '📁 Export complete!',
-            'success',
-            false
-          );
+          if (window.chrome?.runtime) {
+            chrome.runtime.sendMessage({ action: 'exportData' }, (response) => {
+              exportBtn.disabled = false;
+              exportBtn.innerHTML = originalContent;
+              showEnhancedNotification('📁 Export complete!', 'success', false);
+            });
+          }
         });
-      } else {
-        // Fallback for testing
-        setTimeout(() => {
-          exportBtn.disabled = false;
-          exportBtn.innerHTML = originalContent;
-          showEnhancedNotification('📁 Export complete!', 'success', false);
-        }, 1500);
       }
-    });
-  }
-
-  console.log('YouTube Enhancer: Successfully injected responsive buttons');
+    },
+    '.ytd-playlist-header-renderer'
+  );
 }
 
 // Enhanced notification system with better design and dashboard link
@@ -893,18 +883,15 @@ function showEnhancedNotification(message, type = 'info', showDashboard = false)
   }, 4000);
 }
 
-// Enhanced initialization function
+// Enhanced initialization with proper cleanup
 function initializeExtension() {
   const currentUrl = window.location.href;
-  console.log('YouTube Enhancer: Initializing on:', currentUrl);
   
   if (currentUrl.includes('youtube.com/watch')) {
-    console.log('YouTube Enhancer: Injecting summarization panel');
-    injectSummarizationPanel();
+    contentManager.injectElement('youtube-enhancer-panel', injectSummarizationPanel, '#secondary');
   } else if (currentUrl.includes('youtube.com/playlist?list=LL') || 
              currentUrl.includes('youtube.com/feed/likes')) {
-    console.log('YouTube Enhancer: Injecting liked videos buttons');
-    injectLikedVideosButtons();
+    contentManager.injectElement('youtube-enhancer-liked-buttons', injectLikedVideosButtons, '.ytd-playlist-header-renderer');
   }
 }
 
@@ -917,35 +904,19 @@ if (document.readyState === 'loading') {
   setTimeout(initializeExtension, 2000);
 }
 
-// Enhanced navigation observer
+// Enhanced navigation observer with proper cleanup
 let currentUrl = window.location.href;
-const observer = new MutationObserver(() => {
+contentManager.setupObserver('navigation', document.body, {
+  childList: true,
+  subtree: true
+}, () => {
   if (window.location.href !== currentUrl) {
     currentUrl = window.location.href;
-    console.log('YouTube Enhancer: URL changed to:', currentUrl);
-    setTimeout(initializeExtension, 3000); // Increased delay for YouTube's dynamic loading
+    setTimeout(initializeExtension, 3000);
   }
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true
-});
-
-// Additional observer for playlist changes
-const playlistObserver = new MutationObserver(() => {
-  if (window.location.href.includes('youtube.com/playlist?list=LL') || 
-      window.location.href.includes('youtube.com/feed/likes')) {
-    if (!document.getElementById('youtube-enhancer-liked-buttons')) {
-      setTimeout(injectLikedVideosButtons, 1000);
-    }
-  }
-});
-
-playlistObserver.observe(document.body, {
-  childList: true,
-  subtree: true
-});
+// ... keep existing code for message handling and CSS animations
 
 // Handle messages from the extension
 if (typeof chrome !== 'undefined' && chrome.runtime) {

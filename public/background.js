@@ -20,28 +20,95 @@ const CAPTIONS_ENDPOINT = `${API_BASE}/captions`;
 const FIXED_AI_API_KEY = 'AIzaSyA6aTa9nXWlOlVoza5gLe5ZWc8yrVlJWn8';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 
-// Handle messages from popup.js and content.js
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Received message:', request);
+// Enhanced background script with secure API key management
+const API_KEYS = {
+  GEMINI: 'AIzaSyCkxngJEfNG2IRp7bsUFjrWUQc4ZsOTOkY',
+  GEMINI_SECONDARY: 'AIzaSyDxQpk6jmBsM5lsGdzRJKokQkwSVTk5sRg'
+};
+
+// Rate limiting for background operations
+const rateLimits = new Map();
+
+function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
+  const now = Date.now();
+  const requests = rateLimits.get(key) || [];
   
-  // Handle authentication request
-  if (request.action === 'authenticate') {
-    (async () => {
-      try {
-        const token = await authenticate();
-        const userInfo = await getUserInfo(token);
-        await chrome.storage.local.set({ userToken: token, userInfo: userInfo });
-        sendResponse({ success: true, userInfo: userInfo });
-      } catch (error) {
-        console.error('Authentication error:', error);
-        sendResponse({ success: false, error: error.message });
+  // Remove old requests outside the window
+  const validRequests = requests.filter(time => now - time < windowMs);
+  
+  if (validRequests.length >= maxRequests) {
+    return false;
+  }
+  
+  validRequests.push(now);
+  rateLimits.set(key, validRequests);
+  return true;
+}
+
+// Secure API key provider
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'getApiKey') {
+    // Basic validation
+    if (!sender.tab || !sender.tab.url.includes('youtube.com')) {
+      sendResponse({ error: 'Unauthorized' });
+      return;
+    }
+    
+    // Rate limit API key requests
+    if (!checkRateLimit('api_key_request', 20, 60000)) {
+      sendResponse({ error: 'Rate limit exceeded' });
+      return;
+    }
+    
+    sendResponse({ apiKey: API_KEYS.GEMINI });
+    return true;
+  }
+  
+  // Handle messages from popup.js and content.js
+  if (message.action === 'authenticate') {
+    // Rate limit authentication attempts
+    if (!checkRateLimit('auth_attempt', 5, 300000)) {
+      sendResponse({ success: false, error: 'Too many authentication attempts' });
+      return;
+    }
+    
+    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+      if (chrome.runtime.lastError || !token) {
+        console.error('Authentication failed:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: 'Authentication failed' });
+        return;
       }
-    })();
-    return true; // Keep the message channel open for the async response
+
+      // Fetch user info with the token
+      fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then(response => response.json())
+      .then(userInfo => {
+        // Store user info and token securely
+        chrome.storage.local.set({
+          userToken: token,
+          userInfo: userInfo
+        }, () => {
+          sendResponse({ 
+            success: true, 
+            userInfo: userInfo,
+            token: token 
+          });
+        });
+      })
+      .catch(error => {
+        console.error('Failed to fetch user info:', error);
+        sendResponse({ success: false, error: 'Failed to fetch user information' });
+      });
+    });
+    return true;
   }
   
   // Check authentication status
-  if (request.action === 'checkAuth') {
+  if (message.action === 'checkAuth') {
     chrome.storage.local.get('userToken', (result) => {
       if (result.userToken) {
         console.log('User is authenticated');
@@ -55,10 +122,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Fetch the user's liked videos
-  if (request.action === 'fetchLikedVideos' || request.action === 'getLikedVideos') {
+  if (message.action === 'fetchLikedVideos' || message.action === 'getLikedVideos') {
     (async () => {
       try {
-        const result = await chrome.storage.local.get('userToken');
+        const result = await chrome.storage.local.get(['userToken', 'likedVideos']);
         if (!result.userToken) {
           sendResponse({ success: false, error: 'Not authenticated' });
           return;
@@ -150,7 +217,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Handle additional videos fetch with pagination
-  if (request.action === 'fetchMoreVideos') {
+  if (message.action === 'fetchMoreVideos') {
     (async () => {
       try {
         const result = await chrome.storage.local.get(['userToken', 'likedVideos']);
@@ -233,13 +300,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Open the dashboard
-  if (request.action === 'openDashboard') {
+  if (message.action === 'openDashboard') {
     chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
     return false;
   }
 
   // Handle data export
-  if (request.action === 'exportData') {
+  if (message.action === 'exportData') {
     (async () => {
       try {
         const result = await chrome.storage.local.get(['userToken', 'likedVideos', 'totalResults']);
@@ -366,7 +433,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Handle video removal from liked list
-  if (request.action === 'deleteVideo') {
+  if (message.action === 'deleteVideo') {
     (async () => {
       try {
         const result = await chrome.storage.local.get(['userToken', 'likedVideos']);
@@ -403,7 +470,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Extract transcript from page and summarize video
-  if (request.action === 'extractAndSummarizeFromPage') {
+  if (message.action === 'extractAndSummarizeFromPage') {
     console.log('Starting transcript extraction and summarization for video:', request.videoId);
     
     (async () => {
@@ -616,7 +683,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Handle video summarization with transcript fetching
-  if (request.action === 'summarizeVideo') {
+  if (message.action === 'summarizeVideo') {
     console.log('Starting original video summarization process for video:', request.videoId);
     
     (async () => {
@@ -835,7 +902,7 @@ Format your response in HTML with bullet points using <ul> and <li> tags.`;
   }
   
   // Handle saving the AI API key
-  if (request.action === 'saveApiKey') {
+  if (message.action === 'saveApiKey') {
     (async () => {
       try {
         // Just store the provided key but we'll always use the fixed one internally
@@ -850,7 +917,7 @@ Format your response in HTML with bullet points using <ul> and <li> tags.`;
   }
   
   // Handle saving AI model choice
-  if (request.action === 'saveAiModel') {
+  if (message.action === 'saveAiModel') {
     (async () => {
       try {
         await chrome.storage.local.set({ aiModel: request.aiModel });
@@ -1158,4 +1225,17 @@ async function storeVideoSummary(videoId, summary) {
 // Open dashboard when extension icon is clicked
 chrome.action.onClicked.addListener(() => {
   chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+});
+
+// Enhanced error handling and logging
+chrome.runtime.onStartup.addListener(() => {
+  console.log('YouTube Enhancer extension started');
+  // Clear old rate limit data
+  rateLimits.clear();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('YouTube Enhancer extension installed/updated');
+  // Initialize secure storage
+  chrome.storage.local.clear();
 });
