@@ -1,3 +1,4 @@
+
 // OAuth 2.0 constants - FIXED CLIENT ID
 const CLIENT_ID = '304162096302-c470kd77du16s0lrlumobc6s8u6uleng.apps.googleusercontent.com';
 const REDIRECT_URL = chrome.identity.getRedirectURL();
@@ -61,7 +62,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
-  // FIXED AUTHENTICATION HANDLER
+  // RESTORED ORIGINAL AUTHENTICATION HANDLER
   if (message.action === 'authenticate') {
     console.log('Starting authentication process...');
     
@@ -73,7 +74,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     // Clear any existing tokens first
     chrome.storage.local.remove(['userToken', 'userInfo'], () => {
-      // Use chrome.identity.getAuthToken with interactive mode
+      // Use chrome.identity.getAuthToken with interactive mode - RESTORED ORIGINAL METHOD
       chrome.identity.getAuthToken({ 
         interactive: true,
         scopes: SCOPES 

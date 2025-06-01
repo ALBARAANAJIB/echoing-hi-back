@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', () => {
   const loginButton = document.getElementById('login-button');
   const loginContainer = document.getElementById('login-container');
@@ -103,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check authentication status on load
   checkAuthStatus();
 
-  // Enhanced login handler
+  // Enhanced login handler - RESTORED ORIGINAL WORKING VERSION
   if (loginButton) {
     loginButton.addEventListener('click', () => {
       console.log('Login button clicked');
