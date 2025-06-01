@@ -1,4 +1,3 @@
-
 document.addEventListener('DOMContentLoaded', () => {
   const loginButton = document.getElementById('login-button');
   const loginContainer = document.getElementById('login-container');
@@ -11,49 +10,131 @@ document.addEventListener('DOMContentLoaded', () => {
   const userEmail = document.getElementById('user-email');
   const userInitial = document.getElementById('user-initial');
 
-  // Check if user is already authenticated
-  chrome.storage.local.get(['userToken', 'userInfo'], (result) => {
-    if (result.userToken && result.userInfo) {
-      loginContainer.style.display = 'none';
-      featuresContainer.style.display = 'block';
-      
-      if (result.userInfo.email) {
-        userEmail.textContent = result.userInfo.email;
-        userInitial.textContent = result.userInfo.email.charAt(0).toUpperCase();
-      } else if (result.userInfo.name) {
-        userEmail.textContent = result.userInfo.name;
-        userInitial.textContent = result.userInfo.name.charAt(0).toUpperCase();
+  // Enhanced authentication check
+  function checkAuthStatus() {
+    chrome.storage.local.get(['userToken', 'userInfo'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Storage access error:', chrome.runtime.lastError);
+        showError('Failed to check authentication status');
+        return;
       }
-    } else {
-      loginContainer.style.display = 'block';
-      featuresContainer.style.display = 'none';
-    }
-  });
-
-  // Login with YouTube
-  loginButton && loginButton.addEventListener('click', () => {
-    loginButton.disabled = true;
-    loginButton.textContent = 'Signing in...';
-    
-    chrome.runtime.sendMessage({ action: 'authenticate' }, (response) => {
-      if (response && response.success) {
-        loginContainer.style.display = 'none';
-        featuresContainer.style.display = 'block';
+      
+      if (result.userToken && result.userInfo) {
+        console.log('User appears to be authenticated');
         
-        if (response.userInfo && response.userInfo.email) {
-          userEmail.textContent = response.userInfo.email;
-          userInitial.textContent = response.userInfo.email.charAt(0).toUpperCase();
-        } else if (response.userInfo && response.userInfo.name) {
-          userEmail.textContent = response.userInfo.name;
-          userInitial.textContent = response.userInfo.name.charAt(0).toUpperCase();
-        }
+        // Validate token with background script
+        chrome.runtime.sendMessage({ action: 'checkAuth' }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('Auth check failed:', chrome.runtime.lastError);
+            showLoginUI();
+            return;
+          }
+          
+          if (response && response.authenticated) {
+            showFeaturesUI(response.userInfo || result.userInfo);
+          } else {
+            console.log('Authentication validation failed:', response?.error);
+            showLoginUI();
+          }
+        });
       } else {
-        showErrorMessage('Authentication failed. Please try again.');
-        loginButton.disabled = false;
-        loginButton.textContent = 'Sign in with YouTube';
+        console.log('No stored authentication found');
+        showLoginUI();
       }
     });
-  });
+  }
+
+  function showLoginUI() {
+    loginContainer.style.display = 'block';
+    featuresContainer.style.display = 'none';
+  }
+
+  function showFeaturesUI(userInfo) {
+    loginContainer.style.display = 'none';
+    featuresContainer.style.display = 'block';
+    
+    if (userInfo) {
+      const displayName = userInfo.email || userInfo.name || 'User';
+      const initial = displayName.charAt(0).toUpperCase();
+      
+      if (userEmail) userEmail.textContent = displayName;
+      if (userInitial) userInitial.textContent = initial;
+    }
+  }
+
+  function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-message';
+    errorDiv.style.cssText = `
+      color: #dc2626;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+      font-size: 12px;
+    `;
+    errorDiv.textContent = message;
+    
+    const container = loginContainer.style.display !== 'none' ? loginContainer : featuresContainer;
+    container.insertBefore(errorDiv, container.firstChild);
+    
+    setTimeout(() => errorDiv.remove(), 5000);
+  }
+
+  function showSuccess(message) {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'success-message';
+    successDiv.style.cssText = `
+      color: #059669;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+      font-size: 12px;
+    `;
+    successDiv.textContent = message;
+    
+    featuresContainer.insertBefore(successDiv, featuresContainer.firstChild);
+    setTimeout(() => successDiv.remove(), 3000);
+  }
+
+  // Check authentication status on load
+  checkAuthStatus();
+
+  // Enhanced login handler
+  if (loginButton) {
+    loginButton.addEventListener('click', () => {
+      console.log('Login button clicked');
+      loginButton.disabled = true;
+      loginButton.textContent = 'Signing in...';
+      
+      // Clear any existing error messages
+      document.querySelectorAll('.error-message').forEach(el => el.remove());
+      
+      chrome.runtime.sendMessage({ action: 'authenticate' }, (response) => {
+        console.log('Authentication response:', response);
+        
+        loginButton.disabled = false;
+        loginButton.textContent = 'Sign in with YouTube';
+        
+        if (chrome.runtime.lastError) {
+          console.error('Runtime error:', chrome.runtime.lastError);
+          showError(`Connection error: ${chrome.runtime.lastError.message}`);
+          return;
+        }
+        
+        if (response && response.success) {
+          console.log('Authentication successful');
+          showFeaturesUI(response.userInfo);
+        } else {
+          console.error('Authentication failed:', response?.error);
+          showError(response?.error || 'Authentication failed. Please try again.');
+        }
+      });
+    });
+  }
 
   // Fetch liked videos
   fetchVideosButton && fetchVideosButton.addEventListener('click', () => {
@@ -115,13 +196,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Sign out
-  signOutButton && signOutButton.addEventListener('click', () => {
-    chrome.storage.local.remove(['userToken', 'userInfo', 'likedVideos'], () => {
-      loginContainer.style.display = 'block';
-      featuresContainer.style.display = 'none';
+  // Enhanced sign out
+  if (signOutButton) {
+    signOutButton.addEventListener('click', () => {
+      console.log('Signing out...');
+      
+      // Revoke token first
+      chrome.storage.local.get('userToken', (result) => {
+        if (result.userToken) {
+          // Revoke the token
+          fetch(`https://oauth2.googleapis.com/revoke?token=${result.userToken}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          }).catch(err => console.log('Token revocation failed:', err));
+        }
+        
+        // Clear storage
+        chrome.storage.local.remove(['userToken', 'userInfo', 'likedVideos'], () => {
+          console.log('Signed out successfully');
+          showLoginUI();
+        });
+      });
     });
-  });
+  }
   
   // Helper functions
   function showSuccessMessage(element, message) {

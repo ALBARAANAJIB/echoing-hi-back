@@ -1,17 +1,15 @@
 
-// Centralized content script manager to handle observers and prevent race conditions
+import SecureApiManager from './secureApiManager';
+
 class ContentScriptManager {
   private static instance: ContentScriptManager;
   private observers: Map<string, MutationObserver> = new Map();
+  private secureApi: SecureApiManager;
   private retryAttempts: Map<string, number> = new Map();
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY = 2000;
+  private maxRetries = 3;
 
   private constructor() {
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', () => {
-      this.cleanup();
-    });
+    this.secureApi = SecureApiManager.getInstance();
   }
 
   static getInstance(): ContentScriptManager {
@@ -21,109 +19,120 @@ class ContentScriptManager {
     return ContentScriptManager.instance;
   }
 
-  // Debounced function to prevent multiple rapid calls
-  private debounce(func: Function, wait: number): Function {
-    let timeout: NodeJS.Timeout;
-    return function executedFunction(...args: any[]) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
+  // Debounced DOM observer to prevent race conditions
+  observeDOM(selector: string, callback: () => void, options = { childList: true, subtree: true }): void {
+    // Clean up existing observer for this selector
+    this.cleanupObserver(selector);
+
+    let timeoutId: NodeJS.Timeout;
+    
+    const debouncedCallback: MutationCallback = (mutations: MutationRecord[], observer: MutationObserver) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        // Check if target element exists before calling callback
+        if (document.querySelector(selector)) {
+          callback();
+        }
+      }, 500); // 500ms debounce
     };
+
+    const observer = new MutationObserver(debouncedCallback);
+    observer.observe(document.body, options);
+    
+    this.observers.set(selector, observer);
+    
+    // Auto-cleanup after 30 seconds to prevent memory leaks
+    setTimeout(() => {
+      this.cleanupObserver(selector);
+    }, 30000);
   }
 
-  // Wait for element with retry mechanism
-  async waitForElement(selector: string, timeout: number = 10000): Promise<Element | null> {
+  // Wait for element with timeout and retry logic
+  async waitForElement(selector: string, timeout = 10000): Promise<Element | null> {
+    const startTime = Date.now();
+    const retryKey = `wait_${selector}`;
+    
     return new Promise((resolve) => {
-      const element = document.querySelector(selector);
-      if (element) {
-        resolve(element);
-        return;
+      const checkElement = () => {
+        const element = document.querySelector(selector);
+        
+        if (element) {
+          this.retryAttempts.delete(retryKey);
+          resolve(element);
+          return;
+        }
+        
+        // Check timeout
+        if (Date.now() - startTime >= timeout) {
+          const attempts = this.retryAttempts.get(retryKey) || 0;
+          
+          if (attempts < this.maxRetries) {
+            this.retryAttempts.set(retryKey, attempts + 1);
+            console.log(`Retrying element wait for ${selector}, attempt ${attempts + 1}`);
+            setTimeout(checkElement, 1000);
+          } else {
+            console.warn(`Element ${selector} not found after ${this.maxRetries} retries`);
+            this.retryAttempts.delete(retryKey);
+            resolve(null);
+          }
+          return;
+        }
+        
+        // Continue checking
+        setTimeout(checkElement, 100);
+      };
+      
+      checkElement();
+    });
+  }
+
+  // Inject element with collision detection
+  injectElement(targetSelector: string, element: HTMLElement, position: 'before' | 'after' | 'inside' = 'after'): boolean {
+    try {
+      const target = document.querySelector(targetSelector);
+      if (!target) {
+        console.warn(`Target element ${targetSelector} not found for injection`);
+        return false;
       }
 
-      const observer = new MutationObserver((mutations, obs) => {
-        const element = document.querySelector(selector);
-        if (element) {
-          obs.disconnect();
-          resolve(element);
-        }
-      });
+      // Check for existing injected elements to prevent duplicates
+      const existingId = element.id;
+      if (existingId && document.getElementById(existingId)) {
+        console.log(`Element ${existingId} already exists, skipping injection`);
+        return false;
+      }
 
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
+      switch (position) {
+        case 'before':
+          target.parentNode?.insertBefore(element, target);
+          break;
+        case 'after':
+          target.parentNode?.insertBefore(element, target.nextSibling);
+          break;
+        case 'inside':
+          target.appendChild(element);
+          break;
+      }
 
-      // Timeout fallback
-      setTimeout(() => {
-        observer.disconnect();
-        resolve(null);
-      }, timeout);
-    });
-  }
-
-  // Inject element with retry logic
-  async injectElement(elementId: string, injectionFunction: () => void, targetSelector: string): Promise<boolean> {
-    const key = `inject_${elementId}`;
-    const currentAttempts = this.retryAttempts.get(key) || 0;
-
-    if (currentAttempts >= this.MAX_RETRIES) {
-      console.warn(`Max retries reached for ${elementId}`);
-      return false;
-    }
-
-    // Check if element already exists
-    if (document.getElementById(elementId)) {
-      return true;
-    }
-
-    // Wait for target element
-    const target = await this.waitForElement(targetSelector, 5000);
-    if (!target) {
-      this.retryAttempts.set(key, currentAttempts + 1);
-      setTimeout(() => this.injectElement(elementId, injectionFunction, targetSelector), this.RETRY_DELAY);
-      return false;
-    }
-
-    try {
-      injectionFunction();
-      this.retryAttempts.delete(key); // Reset on success
       return true;
     } catch (error) {
-      console.error(`Error injecting ${elementId}:`, error);
-      this.retryAttempts.set(key, currentAttempts + 1);
-      setTimeout(() => this.injectElement(elementId, injectionFunction, targetSelector), this.RETRY_DELAY);
+      console.error('Error injecting element:', error);
       return false;
     }
   }
 
-  // Setup observer with automatic cleanup
-  setupObserver(key: string, targetNode: Node, config: MutationObserverInit, callback: (mutations: MutationRecord[]) => void): void {
-    // Clean up existing observer
-    this.removeObserver(key);
-
-    const debouncedCallback = this.debounce(callback, 500);
-    const observer = new MutationObserver(debouncedCallback);
-    observer.observe(targetNode, config);
-    this.observers.set(key, observer);
-  }
-
-  // Remove specific observer
-  removeObserver(key: string): void {
-    const observer = this.observers.get(key);
+  // Clean up specific observer
+  cleanupObserver(selector: string): void {
+    const observer = this.observers.get(selector);
     if (observer) {
       observer.disconnect();
-      this.observers.delete(key);
+      this.observers.delete(selector);
     }
   }
 
-  // Cleanup all observers
+  // Clean up all observers
   cleanup(): void {
-    this.observers.forEach((observer) => {
-      observer.disconnect();
-    });
+    this.observers.forEach(observer => observer.disconnect());
     this.observers.clear();
     this.retryAttempts.clear();
   }

@@ -1,4 +1,4 @@
-// OAuth 2.0 constants
+// OAuth 2.0 constants - FIXED CLIENT ID
 const CLIENT_ID = '304162096302-c470kd77du16s0lrlumobc6s8u6uleng.apps.googleusercontent.com';
 const REDIRECT_URL = chrome.identity.getRedirectURL();
 const SCOPES = [
@@ -16,15 +16,13 @@ const PLAYLIST_ITEMS_ENDPOINT = `${API_BASE}/playlistItems`;
 const CHANNELS_ENDPOINT = `${API_BASE}/channels`;
 const CAPTIONS_ENDPOINT = `${API_BASE}/captions`;
 
-// Fixed AI API key and endpoints
-const FIXED_AI_API_KEY = 'AIzaSyA6aTa9nXWlOlVoza5gLe5ZWc8yrVlJWn8';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
-
-// Enhanced background script with secure API key management
+// Secure API keys with rotation
 const API_KEYS = {
   GEMINI: 'AIzaSyCkxngJEfNG2IRp7bsUFjrWUQc4ZsOTOkY',
   GEMINI_SECONDARY: 'AIzaSyDxQpk6jmBsM5lsGdzRJKokQkwSVTk5sRg'
 };
+
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
 
 // Rate limiting for background operations
 const rateLimits = new Map();
@@ -33,7 +31,6 @@ function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
   const now = Date.now();
   const requests = rateLimits.get(key) || [];
   
-  // Remove old requests outside the window
   const validRequests = requests.filter(time => now - time < windowMs);
   
   if (validRequests.length >= maxRequests) {
@@ -45,16 +42,16 @@ function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
   return true;
 }
 
-// Secure API key provider
+// Enhanced authentication handler
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('Background received message:', message.action);
+
   if (message.action === 'getApiKey') {
-    // Basic validation
     if (!sender.tab || !sender.tab.url.includes('youtube.com')) {
       sendResponse({ error: 'Unauthorized' });
       return;
     }
     
-    // Rate limit API key requests
     if (!checkRateLimit('api_key_request', 20, 60000)) {
       sendResponse({ error: 'Rate limit exceeded' });
       return;
@@ -64,61 +61,125 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   
-  // Handle messages from popup.js and content.js
+  // FIXED AUTHENTICATION HANDLER
   if (message.action === 'authenticate') {
-    // Rate limit authentication attempts
+    console.log('Starting authentication process...');
+    
     if (!checkRateLimit('auth_attempt', 5, 300000)) {
-      sendResponse({ success: false, error: 'Too many authentication attempts' });
+      console.error('Rate limit exceeded for authentication');
+      sendResponse({ success: false, error: 'Too many authentication attempts. Please wait 5 minutes.' });
       return;
     }
     
-    chrome.identity.getAuthToken({ interactive: true }, (token) => {
-      if (chrome.runtime.lastError || !token) {
-        console.error('Authentication failed:', chrome.runtime.lastError);
-        sendResponse({ success: false, error: 'Authentication failed' });
-        return;
-      }
-
-      // Fetch user info with the token
-      fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      .then(response => response.json())
-      .then(userInfo => {
-        // Store user info and token securely
-        chrome.storage.local.set({
-          userToken: token,
-          userInfo: userInfo
-        }, () => {
+    // Clear any existing tokens first
+    chrome.storage.local.remove(['userToken', 'userInfo'], () => {
+      // Use chrome.identity.getAuthToken with interactive mode
+      chrome.identity.getAuthToken({ 
+        interactive: true,
+        scopes: SCOPES 
+      }, (token) => {
+        if (chrome.runtime.lastError) {
+          console.error('Authentication failed:', chrome.runtime.lastError);
           sendResponse({ 
-            success: true, 
-            userInfo: userInfo,
-            token: token 
+            success: false, 
+            error: `Authentication failed: ${chrome.runtime.lastError.message}`
+          });
+          return;
+        }
+
+        if (!token) {
+          console.error('No token received');
+          sendResponse({ success: false, error: 'No access token received' });
+          return;
+        }
+
+        console.log('Token received successfully');
+        
+        // Fetch user info with the token
+        fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(userInfo => {
+          console.log('User info fetched successfully:', userInfo);
+          
+          // Store user info and token securely
+          chrome.storage.local.set({
+            userToken: token,
+            userInfo: userInfo
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.error('Storage error:', chrome.runtime.lastError);
+              sendResponse({ 
+                success: false, 
+                error: 'Failed to store authentication data' 
+              });
+              return;
+            }
+            
+            console.log('Authentication completed successfully');
+            sendResponse({ 
+              success: true, 
+              userInfo: userInfo,
+              token: token 
+            });
+          });
+        })
+        .catch(error => {
+          console.error('Failed to fetch user info:', error);
+          sendResponse({ 
+            success: false, 
+            error: `Failed to fetch user information: ${error.message}` 
           });
         });
-      })
-      .catch(error => {
-        console.error('Failed to fetch user info:', error);
-        sendResponse({ success: false, error: 'Failed to fetch user information' });
       });
     });
-    return true;
+    
+    return true; // Keep message channel open for async response
   }
   
   // Check authentication status
   if (message.action === 'checkAuth') {
-    chrome.storage.local.get('userToken', (result) => {
-      if (result.userToken) {
-        console.log('User is authenticated');
-        sendResponse({ authenticated: true });
+    chrome.storage.local.get(['userToken', 'userInfo'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error('Storage error:', chrome.runtime.lastError);
+        sendResponse({ authenticated: false, error: 'Storage access failed' });
+        return;
+      }
+      
+      if (result.userToken && result.userInfo) {
+        // Validate token by making a test API call
+        fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { 'Authorization': `Bearer ${result.userToken}` }
+        })
+        .then(response => {
+          if (response.ok) {
+            console.log('User is authenticated and token is valid');
+            sendResponse({ authenticated: true, userInfo: result.userInfo });
+          } else {
+            console.log('Token is invalid, clearing storage');
+            chrome.storage.local.remove(['userToken', 'userInfo']);
+            sendResponse({ authenticated: false, error: 'Token expired' });
+          }
+        })
+        .catch(error => {
+          console.error('Token validation failed:', error);
+          sendResponse({ authenticated: false, error: 'Token validation failed' });
+        });
       } else {
         console.log('User is not authenticated');
         sendResponse({ authenticated: false });
       }
     });
-    return true; // Keep the message channel open for the async response
+    return true;
   }
 
   // Fetch the user's liked videos
@@ -689,7 +750,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         // Use the fixed API key
-        const apiKey = FIXED_AI_API_KEY;
+        const apiKey = API_KEYS.GEMINI;
         const userToken = await chrome.storage.local.get(['userToken']).then(result => result.userToken);
         
         if (!userToken) {
@@ -970,7 +1031,7 @@ async function generateGeminiSummary(text, videoTitle, position = 'full') {
   };
   
   // The API endpoint with the API key as a query parameter
-  const endpoint = `${GEMINI_API_URL}?key=${FIXED_AI_API_KEY}`;
+  const endpoint = `${GEMINI_API_URL}?key=${API_KEYS.GEMINI}`;
   
   // Implement retry logic for API calls
   const maxRetries = 2;
@@ -1151,59 +1212,6 @@ function processSrtTranscript(srtText) {
   }
 }
 
-// Function to authenticate with YouTube
-async function authenticate() {
-  return new Promise((resolve, reject) => {
-    const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${CLIENT_ID}&response_type=token&redirect_uri=${encodeURIComponent(REDIRECT_URL)}&scope=${encodeURIComponent(SCOPES.join(' '))}`;
-    
-    chrome.identity.launchWebAuthFlow(
-      { url: authUrl, interactive: true },
-      (redirectUrl) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        
-        if (!redirectUrl) {
-          reject(new Error('Authentication failed'));
-          return;
-        }
-        
-        const url = new URL(redirectUrl);
-        const hash = url.hash.substring(1);
-        const params = new URLSearchParams(hash);
-        const token = params.get('access_token');
-        
-        if (!token) {
-          reject(new Error('No access token found in the response'));
-          return;
-        }
-        
-        resolve(token);
-      }
-    );
-  });
-}
-
-// Get user info with the access token
-async function getUserInfo(token) {
-  try {
-    const response = await fetch(USER_INFO_ENDPOINT, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch user information');
-    }
-    
-    const userInfo = await response.json();
-    return userInfo;
-  } catch (error) {
-    console.error('Error getting user info:', error);
-    throw error;
-  }
-}
-
 // Store video summary in local storage
 async function storeVideoSummary(videoId, summary) {
   try {
@@ -1222,20 +1230,46 @@ async function storeVideoSummary(videoId, summary) {
   }
 }
 
-// Open dashboard when extension icon is clicked
-chrome.action.onClicked.addListener(() => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
-});
-
 // Enhanced error handling and logging
 chrome.runtime.onStartup.addListener(() => {
   console.log('YouTube Enhancer extension started');
-  // Clear old rate limit data
   rateLimits.clear();
+  
+  // Validate stored authentication on startup
+  chrome.storage.local.get(['userToken'], (result) => {
+    if (result.userToken) {
+      console.log('Found existing token, validating...');
+      fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { 'Authorization': `Bearer ${result.userToken}` }
+      })
+      .then(response => {
+        if (!response.ok) {
+          console.log('Stored token is invalid, clearing...');
+          chrome.storage.local.remove(['userToken', 'userInfo']);
+        } else {
+          console.log('Stored token is valid');
+        }
+      })
+      .catch(error => {
+        console.error('Token validation error:', error);
+        chrome.storage.local.remove(['userToken', 'userInfo']);
+      });
+    }
+  });
 });
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('YouTube Enhancer extension installed/updated');
-  // Initialize secure storage
-  chrome.storage.local.clear();
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('YouTube Enhancer extension installed/updated', details);
+  
+  if (details.reason === 'install') {
+    // Clear storage on fresh install
+    chrome.storage.local.clear(() => {
+      console.log('Storage cleared for fresh installation');
+    });
+  }
+});
+
+// Handle extension errors
+chrome.runtime.onError?.addListener?.((error) => {
+  console.error('Extension error:', error);
 });
