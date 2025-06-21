@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedVideos = new Set();
   let isLoadingMore = false;
   let totalVideosCount = 0;
+  let allVideosSelected = false;
   
   // Initialize the dashboard
   init();
@@ -72,8 +73,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add simple total count text at the top
         addTotalCountText();
         
-        // Sort videos by latest first (using likedAt or publishedAt)
-        sortVideosByLatest();
+        // Ensure videos are sorted by latest liked first on initial load
+        sortVideosByLatestLiked();
         
         renderVideos();
         
@@ -107,12 +108,14 @@ document.addEventListener('DOMContentLoaded', () => {
     totalCountElement.className = 'total-videos-text';
     totalCountElement.style.cssText = `
       text-align: center;
-      font-size: 16px;
-      color: #374151;
-      margin-bottom: 20px;
-      padding: 10px;
-      background: #f9fafb;
-      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #1f2937;
+      margin: 20px 0;
+      padding: 12px;
+      background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
     `;
     
     const displayCount = Math.max(totalVideosCount, videos.length);
@@ -125,8 +128,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Sort videos by latest first
-  function sortVideosByLatest() {
+  // Sort videos by latest liked first
+  function sortVideosByLatestLiked() {
     videos.sort((a, b) => {
       const dateA = new Date(a.likedAt || a.publishedAt || 0);
       const dateB = new Date(b.likedAt || b.publishedAt || 0);
@@ -201,8 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
         videos = [...videos, ...newVideos];
         totalVideosCount = response.totalResults || totalVideosCount;
         
-        // Sort all videos by latest
-        sortVideosByLatest();
+        // Sort all videos by latest liked
+        sortVideosByLatestLiked();
         
         // Save to storage
         chrome.storage.local.set({ 
@@ -238,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Render videos based on search and filter
+  // Render videos based on search and filter with accurate sorting
   function renderVideos() {
     console.log('🎨 Rendering videos:', videos.length);
     videoList.innerHTML = '';
@@ -251,20 +254,39 @@ document.addEventListener('DOMContentLoaded', () => {
       (video.channelTitle && video.channelTitle.toLowerCase().includes(searchTerm))
     );
     
-    // Apply sorting based on filter
+    // Apply accurate sorting based on filter
     switch (filterValue) {
       case 'recent':
-        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt || 0) - new Date(a.likedAt || a.publishedAt || 0));
+        // Sort by most recently liked
+        filteredVideos.sort((a, b) => {
+          const dateA = new Date(a.likedAt || a.publishedAt || 0);
+          const dateB = new Date(b.likedAt || b.publishedAt || 0);
+          return dateB - dateA;
+        });
         break;
       case 'oldest':
-        filteredVideos.sort((a, b) => new Date(a.likedAt || a.publishedAt || 0) - new Date(b.likedAt || b.publishedAt || 0));
+        // Sort by oldest liked first
+        filteredVideos.sort((a, b) => {
+          const dateA = new Date(a.likedAt || a.publishedAt || 0);
+          const dateB = new Date(b.likedAt || b.publishedAt || 0);
+          return dateA - dateB;
+        });
         break;
       case 'popular':
-        filteredVideos.sort((a, b) => parseInt(b.viewCount || 0) - parseInt(a.viewCount || 0));
+        // Sort by view count (highest first)
+        filteredVideos.sort((a, b) => {
+          const viewsA = parseInt(a.viewCount || 0);
+          const viewsB = parseInt(b.viewCount || 0);
+          return viewsB - viewsA;
+        });
         break;
       default:
-        // Default: most recent first
-        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt || 0) - new Date(a.likedAt || a.publishedAt || 0));
+        // Default: most recently liked first
+        filteredVideos.sort((a, b) => {
+          const dateA = new Date(a.likedAt || a.publishedAt || 0);
+          const dateB = new Date(b.likedAt || b.publishedAt || 0);
+          return dateB - dateA;
+        });
     }
     
     if (filteredVideos.length === 0) {
@@ -347,6 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedVideos.add(video.id);
       } else {
         selectedVideos.delete(video.id);
+        allVideosSelected = false;
       }
       updateSelectionCount();
     });
@@ -373,155 +396,14 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadBtn.disabled = true;
     
     const sanitizedTitle = videoTitle.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     
     try {
-      // Method 1: Try using a CORS-enabled API
-      await tryDirectDownload(videoId, sanitizedTitle);
-    } catch (error) {
-      console.log('Direct download failed, trying alternative method...');
-      
-      try {
-        // Method 2: Try using youtube-dl-web service
-        await tryYoutubeDLWeb(videoUrl, sanitizedTitle);
-      } catch (error2) {
-        console.log('Alternative method failed, using fallback...');
-        
-        // Method 3: Create a downloadable link using iframe method
-        await tryIframeMethod(videoId, sanitizedTitle);
-      }
-    } finally {
-      downloadBtn.innerHTML = originalText;
-      downloadBtn.disabled = false;
-    }
-  }
-  
-  // Method 1: Direct API download
-  async function tryDirectDownload(videoId, title) {
-    const response = await fetch(`https://api.cobalt.tools/api/json`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        vQuality: '720',
-        vFormat: 'mp4',
-        isAudioOnly: false
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (data.status === 'success' && data.url) {
-      const link = document.createElement('a');
-      link.href = data.url;
-      link.download = `${title}.mp4`;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      showToast('Video download started!');
-      return;
-    }
-    
-    throw new Error('Direct download failed');
-  }
-  
-  // Method 2: YouTube-DL Web service
-  async function tryYoutubeDLWeb(videoUrl, title) {
-    const response = await fetch('https://youtube-dl-web.herokuapp.com/api/download', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: videoUrl,
-        format: 'mp4'
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (data.success && data.download_url) {
-      const link = document.createElement('a');
-      link.href = data.download_url;
-      link.download = `${title}.mp4`;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      showToast('Video download started!');
-      return;
-    }
-    
-    throw new Error('YouTube-DL web failed');
-  }
-  
-  // Method 3: Iframe extraction method
-  async function tryIframeMethod(videoId, title) {
-    try {
-      // Create a hidden iframe to extract video sources
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = `https://www.youtube.com/embed/${videoId}`;
-      document.body.appendChild(iframe);
-      
-      // Wait for iframe to load
-      await new Promise(resolve => {
-        iframe.onload = resolve;
-        setTimeout(resolve, 3000); // Fallback timeout
-      });
-      
-      // Try to extract video URL from iframe (this is a simplified approach)
-      // In reality, this would require more complex extraction
-      
-      document.body.removeChild(iframe);
-      
-      // Fallback: Use a public video downloader service embedded
-      const downloadUrl = `https://yt1s.com/api/ajaxSearch/index`;
-      const formData = new FormData();
-      formData.append('q', `https://www.youtube.com/watch?v=${videoId}`);
-      formData.append('vt', 'mp4');
-      
-      const response = await fetch(downloadUrl, {
-        method: 'POST',
-        body: formData
-      });
-      
-      const data = await response.json();
-      
-      if (data.status === 'ok' && data.mess) {
-        // Parse the response to get download links
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(data.mess, 'text/html');
-        const downloadLink = doc.querySelector('a[href*="download"]');
-        
-        if (downloadLink) {
-          const link = document.createElement('a');
-          link.href = downloadLink.href;
-          link.download = `${title}.mp4`;
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          
-          showToast('Video download started!');
-          return;
-        }
-      }
-      
-      throw new Error('Iframe method failed');
-    } catch (error) {
       // Final fallback - open in new tab with instructions
       const blob = new Blob([`
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Download ${title}</title>
+          <title>Download ${videoTitle}</title>
           <style>
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
             .download-box { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
@@ -530,7 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
           </style>
         </head>
         <body>
-          <h1>Download: ${title}</h1>
+          <h1>Download: ${videoTitle}</h1>
           <div class="download-box">
             <p>Click one of the links below to download your video:</p>
             <a href="https://yt1s.com/youtube/${videoId}" target="_blank" class="btn">Download via YT1S</a>
@@ -545,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${title}_download_options.html`;
+      link.download = `${sanitizedTitle}_download_options.html`;
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
@@ -553,6 +435,9 @@ document.addEventListener('DOMContentLoaded', () => {
       URL.revokeObjectURL(url);
       
       showToast('Download options file created! Check your downloads folder.');
+    } finally {
+      downloadBtn.innerHTML = originalText;
+      downloadBtn.disabled = false;
     }
   }
   
@@ -594,48 +479,67 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
   
-  // Delete a single video - Fixed to only remove from local storage, not YouTube
+  // Delete a single video from YouTube and local storage
   function deleteVideo(videoId) {
-    console.log('🗑️ Removing video from local storage:', videoId);
+    console.log('🗑️ Deleting video from YouTube:', videoId);
     
-    // Simply remove from local storage and update UI
-    videos = videos.filter(video => video.id !== videoId);
-    selectedVideos.delete(videoId);
+    // Show loading state
+    const deleteBtn = document.querySelector(`[data-id="${videoId}"].delete-button`);
+    const originalText = deleteBtn.innerHTML;
+    deleteBtn.innerHTML = 'Removing...';
+    deleteBtn.disabled = true;
     
-    // Update storage
-    chrome.storage.local.set({ 
-      likedVideos: videos,
-      totalResults: totalVideosCount > 0 ? totalVideosCount - 1 : videos.length
-    }, () => {
-      console.log('✅ Video removed from local storage');
+    chrome.runtime.sendMessage({ action: 'deleteVideo', videoId }, (response) => {
+      deleteBtn.innerHTML = originalText;
+      deleteBtn.disabled = false;
       
-      // Update total count
-      totalVideosCount = Math.max(0, totalVideosCount - 1);
-      addTotalCountText();
-      
-      // Update UI
-      updateSelectionCount();
-      renderVideos();
-      
-      showToast('Video removed from your list');
+      if (response && response.success) {
+        // Remove from local array and update UI
+        videos = videos.filter(video => video.id !== videoId);
+        selectedVideos.delete(videoId);
+        
+        // Update storage
+        chrome.storage.local.set({ 
+          likedVideos: videos,
+          totalResults: Math.max(0, totalVideosCount - 1)
+        });
+        
+        // Update total count
+        totalVideosCount = Math.max(0, totalVideosCount - 1);
+        addTotalCountText();
+        
+        // Update UI
+        updateSelectionCount();
+        renderVideos();
+        
+        showToast('Video removed from YouTube and your list');
+      } else {
+        console.error('Failed to delete video:', response?.error);
+        showToast('Failed to remove video from YouTube. Please try again.', 'error');
+      }
     });
   }
   
-  // Toggle select all videos
+  // Toggle select all videos with proper toggle behavior
   function toggleSelectAll() {
     const checkboxes = document.querySelectorAll('.video-checkbox');
-    const allSelected = checkboxes.length === selectedVideos.size;
     
-    if (allSelected) {
+    if (allVideosSelected) {
+      // Deselect all
       selectedVideos.clear();
       checkboxes.forEach(checkbox => {
         checkbox.checked = false;
       });
+      allVideosSelected = false;
+      selectAllButton.textContent = 'Select All';
     } else {
+      // Select all
       checkboxes.forEach(checkbox => {
         checkbox.checked = true;
         selectedVideos.add(checkbox.getAttribute('data-id'));
       });
+      allVideosSelected = true;
+      selectAllButton.textContent = 'Deselect All';
     }
     
     updateSelectionCount();
@@ -644,8 +548,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Update selection count
   function updateSelectionCount() {
     const count = selectedVideos.size;
+    const totalVisible = document.querySelectorAll('.video-checkbox').length;
+    
     selectionCountElement.textContent = `${count} video${count !== 1 ? 's' : ''} selected`;
     deleteSelectedButton.disabled = count === 0;
+    
+    // Update select all button text based on selection state
+    if (count === totalVisible && totalVisible > 0) {
+      allVideosSelected = true;
+      selectAllButton.textContent = 'Deselect All';
+    } else {
+      allVideosSelected = false;
+      selectAllButton.textContent = 'Select All';
+    }
     
     // Show/hide sticky bottom bar
     const stickyBar = document.querySelector('.sticky-bottom-bar');
@@ -666,35 +581,62 @@ document.addEventListener('DOMContentLoaded', () => {
     confirmationModal.style.display = 'none';
   }
   
-  // Delete selected videos - Fixed to only remove from local storage
+  // Delete selected videos from YouTube and local storage
   function deleteSelectedVideos() {
     const totalToDelete = selectedVideos.size;
     const videoIds = Array.from(selectedVideos);
     
     hideDeleteConfirmation();
     
-    console.log('🗑️ Removing selected videos from local storage:', videoIds);
+    console.log('🗑️ Deleting selected videos from YouTube:', videoIds);
     
-    // Remove selected videos from the array
-    videos = videos.filter(video => !selectedVideos.has(video.id));
+    // Show loading state
+    loadingElement.style.display = 'block';
+    loadingElement.textContent = `Removing ${totalToDelete} videos from YouTube...`;
     
-    // Update storage
-    chrome.storage.local.set({ 
-      likedVideos: videos,
-      totalResults: Math.max(0, totalVideosCount - totalToDelete)
-    }, () => {
-      console.log('✅ Selected videos removed from local storage');
-      
-      // Update total count
-      totalVideosCount = Math.max(0, totalVideosCount - totalToDelete);
-      addTotalCountText();
-      
-      // Clear selection and update UI
-      selectedVideos.clear();
-      updateSelectionCount();
-      renderVideos();
-      
-      showToast(`Removed ${totalToDelete} video${totalToDelete !== 1 ? 's' : ''} from your list`);
+    let deletedCount = 0;
+    let failedCount = 0;
+    
+    // Delete each video from YouTube
+    videoIds.forEach(videoId => {
+      chrome.runtime.sendMessage({ action: 'deleteVideo', videoId }, (response) => {
+        if (response && response.success) {
+          deletedCount++;
+        } else {
+          failedCount++;
+          console.error(`Failed to delete video ${videoId}:`, response?.error);
+        }
+        
+        // Check if all deletions are complete
+        if (deletedCount + failedCount === totalToDelete) {
+          // Remove successfully deleted videos from local array
+          videos = videos.filter(video => !videoIds.includes(video.id) || failedCount > 0);
+          
+          // Update storage
+          chrome.storage.local.set({ 
+            likedVideos: videos,
+            totalResults: Math.max(0, totalVideosCount - deletedCount)
+          });
+          
+          // Update total count
+          totalVideosCount = Math.max(0, totalVideosCount - deletedCount);
+          addTotalCountText();
+          
+          // Clear selection and update UI
+          selectedVideos.clear();
+          allVideosSelected = false;
+          updateSelectionCount();
+          renderVideos();
+          
+          loadingElement.style.display = 'none';
+          
+          if (failedCount === 0) {
+            showToast(`Successfully removed ${deletedCount} video${deletedCount !== 1 ? 's' : ''} from YouTube`);
+          } else {
+            showToast(`Removed ${deletedCount} videos, ${failedCount} failed`, 'error');
+          }
+        }
+      });
     });
   }
 });

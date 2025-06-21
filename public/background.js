@@ -1,3 +1,4 @@
+
 // YouTube Enhancer Background Script with Modern Chrome Authentication
 console.log('🚀 YouTube Enhancer background script loaded');
 
@@ -11,6 +12,12 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 
+// YouTube API endpoints
+const API_BASE = 'https://www.googleapis.com/youtube/v3';
+const LIKED_VIDEOS_ENDPOINT = `${API_BASE}/videos`;
+const PLAYLIST_ITEMS_ENDPOINT = `${API_BASE}/playlistItems`;
+const CHANNELS_ENDPOINT = `${API_BASE}/channels`;
+
 // Set up extension installation/startup
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -23,9 +30,6 @@ chrome.runtime.onInstalled.addListener((details) => {
 async function authenticateWithYouTube() {
   try {
     console.log('🔐 Starting YouTube authentication with Chrome Identity API...');
-    console.log('🆔 Client ID:', CLIENT_ID);
-    console.log('🔗 Redirect URL:', REDIRECT_URL);
-    console.log('📝 Scopes:', SCOPES);
     
     // Clear any existing tokens first
     await chrome.storage.local.remove(['userToken', 'userInfo']);
@@ -91,7 +95,7 @@ async function authenticateWithYouTube() {
   }
 }
 
-// Fetch liked videos from YouTube API
+// Fetch liked videos from YouTube API with proper liked dates
 async function fetchLikedVideos() {
   try {
     console.log('📺 Fetching liked videos...');
@@ -106,48 +110,76 @@ async function fetchLikedVideos() {
       throw new Error('Token expired. Please sign in again.');
     }
     
-    // Fetch liked videos using YouTube Data API v3
-    const response = await fetch('https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&myRating=like&maxResults=50', {
-      headers: {
-        'Authorization': `Bearer ${storage.userToken}`
-      }
+    // First get the user's "liked videos" playlist ID
+    const channelResponse = await fetch(`${CHANNELS_ENDPOINT}?part=contentDetails&mine=true`, {
+      headers: { Authorization: `Bearer ${storage.userToken}` }
     });
     
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || `API error: ${response.status}`);
-    }
+    if (!channelResponse.ok) throw new Error('Failed to fetch channel data');
     
-    const data = await response.json();
-    console.log('✅ Liked videos fetched:', data.items?.length || 0);
+    const channelData = await channelResponse.json();
+    const likedPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.likes;
     
-    // Process videos with proper structure for dashboard
-    const processedVideos = (data.items || []).map(video => ({
-      id: video.id,
-      title: video.snippet?.title || 'Unknown Title',
-      channelTitle: video.snippet?.channelTitle || 'Unknown Channel',
-      publishedAt: video.snippet?.publishedAt || new Date().toISOString(),
-      likedAt: new Date().toISOString(), // We don't have actual liked date from API
-      url: `https://www.youtube.com/watch?v=${video.id}`,
-      viewCount: video.statistics?.viewCount || '0',
-      likeCount: video.statistics?.likeCount || '0',
-      thumbnail: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || ''
-    }));
-    
-    // Store the videos with pagination info
-    await chrome.storage.local.set({
-      likedVideos: processedVideos,
-      lastFetch: Date.now(),
-      nextPageToken: data.nextPageToken || null,
-      totalResults: data.pageInfo?.totalResults || processedVideos.length
+    // Fetch the videos from the liked playlist
+    const playlistResponse = await fetch(`${PLAYLIST_ITEMS_ENDPOINT}?part=snippet,contentDetails&maxResults=50&playlistId=${likedPlaylistId}`, {
+      headers: { Authorization: `Bearer ${storage.userToken}` }
     });
+    
+    if (!playlistResponse.ok) throw new Error('Failed to fetch playlist items');
+    
+    const playlistData = await playlistResponse.json();
+    console.log('Playlist items fetched:', playlistData);
+    
+    // Get video details for the playlist items
+    const videoIds = playlistData.items.map(item => item.contentDetails.videoId).join(',');
+    
+    const videosResponse = await fetch(`${LIKED_VIDEOS_ENDPOINT}?part=snippet,statistics&id=${videoIds}`, {
+      headers: { Authorization: `Bearer ${storage.userToken}` }
+    });
+    
+    if (!videosResponse.ok) throw new Error('Failed to fetch video details');
+    
+    const videosData = await videosResponse.json();
+    
+    // Map playlist items to our video objects with correct liked dates
+    const videos = playlistData.items.map(item => {
+      const videoId = item.contentDetails.videoId;
+      const videoDetails = videosData.items.find(v => v.id === videoId);
+      
+      if (!videoDetails) return null;
+      
+      return {
+        id: videoId,
+        title: videoDetails.snippet.title,
+        channelTitle: videoDetails.snippet.channelTitle,
+        channelId: videoDetails.snippet.channelId,
+        publishedAt: videoDetails.snippet.publishedAt,
+        // Use the date from the playlist item for when it was liked
+        likedAt: item.snippet.publishedAt,
+        thumbnail: videoDetails.snippet.thumbnails.medium?.url || '',
+        viewCount: videoDetails.statistics?.viewCount || '0',
+        likeCount: videoDetails.statistics?.likeCount || '0',
+        url: `https://www.youtube.com/watch?v=${videoId}`
+      };
+    }).filter(Boolean); // Remove any nulls
+    
+    // Store the videos locally sorted by latest liked first
+    const sortedVideos = videos.sort((a, b) => new Date(b.likedAt) - new Date(a.likedAt));
+    
+    await chrome.storage.local.set({ 
+      likedVideos: sortedVideos,
+      nextPageToken: playlistData.nextPageToken || null,
+      totalResults: playlistData.pageInfo?.totalResults || sortedVideos.length
+    });
+    
+    console.log('Videos stored in local storage with correct liked dates');
     
     return {
       success: true,
-      videos: processedVideos,
-      count: processedVideos.length,
-      nextPageToken: data.nextPageToken,
-      totalResults: data.pageInfo?.totalResults || processedVideos.length
+      videos: sortedVideos,
+      count: sortedVideos.length,
+      nextPageToken: playlistData.nextPageToken,
+      totalResults: playlistData.pageInfo?.totalResults || sortedVideos.length
     };
     
   } catch (error) {
@@ -162,7 +194,7 @@ async function fetchLikedVideos() {
 // Fetch more liked videos using pageToken
 async function fetchMoreLikedVideos(pageToken) {
   try {
-    console.log('📺 Fetching more liked videos with pageToken:', pageToken);
+    console.log('📺 Fetching more liked videos with page token:', pageToken);
     
     const storage = await chrome.storage.local.get(['userToken', 'tokenExpiry']);
     
@@ -174,44 +206,72 @@ async function fetchMoreLikedVideos(pageToken) {
       throw new Error('Token expired. Please sign in again.');
     }
     
-    // Fetch more liked videos using YouTube Data API v3 with pageToken
-    const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&myRating=like&maxResults=50&pageToken=${pageToken}`, {
-      headers: {
-        'Authorization': `Bearer ${storage.userToken}`
-      }
+    // Get the user's "liked videos" playlist ID
+    const channelResponse = await fetch(`${CHANNELS_ENDPOINT}?part=contentDetails&mine=true`, {
+      headers: { Authorization: `Bearer ${storage.userToken}` }
     });
     
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || `API error: ${response.status}`);
-    }
+    if (!channelResponse.ok) throw new Error('Failed to fetch channel data');
     
-    const data = await response.json();
-    console.log('✅ More liked videos fetched:', data.items?.length || 0);
+    const channelData = await channelResponse.json();
+    const likedPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.likes;
     
-    // Process videos with proper structure for dashboard
-    const processedVideos = (data.items || []).map(video => ({
-      id: video.id,
-      title: video.snippet?.title || 'Unknown Title',
-      channelTitle: video.snippet?.channelTitle || 'Unknown Channel',
-      publishedAt: video.snippet?.publishedAt || new Date().toISOString(),
-      likedAt: new Date().toISOString(), // We don't have actual liked date from API
-      url: `https://www.youtube.com/watch?v=${video.id}`,
-      viewCount: video.statistics?.viewCount || '0',
-      likeCount: video.statistics?.likeCount || '0',
-      thumbnail: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || ''
-    }));
+    // Fetch the next page of videos using the pageToken
+    const playlistResponse = await fetch(
+      `${PLAYLIST_ITEMS_ENDPOINT}?part=snippet,contentDetails&maxResults=50&playlistId=${likedPlaylistId}&pageToken=${pageToken}`, 
+      {
+        headers: { Authorization: `Bearer ${storage.userToken}` }
+      }
+    );
+    
+    if (!playlistResponse.ok) throw new Error('Failed to fetch playlist items');
+    
+    const playlistData = await playlistResponse.json();
+    
+    // Get video details for the playlist items
+    const videoIds = playlistData.items.map(item => item.contentDetails.videoId).join(',');
+    
+    const videosResponse = await fetch(`${LIKED_VIDEOS_ENDPOINT}?part=snippet,statistics&id=${videoIds}`, {
+      headers: { Authorization: `Bearer ${storage.userToken}` }
+    });
+    
+    if (!videosResponse.ok) throw new Error('Failed to fetch video details');
+    
+    const videosData = await videosResponse.json();
+    
+    // Map playlist items to our video objects with correct liked dates
+    const newVideos = playlistData.items.map(item => {
+      const videoId = item.contentDetails.videoId;
+      const videoDetails = videosData.items.find(v => v.id === videoId);
+      
+      if (!videoDetails) return null;
+      
+      return {
+        id: videoId,
+        title: videoDetails.snippet.title,
+        channelTitle: videoDetails.snippet.channelTitle,
+        channelId: videoDetails.snippet.channelId,
+        publishedAt: videoDetails.snippet.publishedAt,
+        likedAt: item.snippet.publishedAt,
+        thumbnail: videoDetails.snippet.thumbnails.medium?.url || '',
+        viewCount: videoDetails.statistics?.viewCount || '0',
+        likeCount: videoDetails.statistics?.likeCount || '0',
+        url: `https://www.youtube.com/watch?v=${videoId}`
+      };
+    }).filter(Boolean);
+    
+    console.log(`Fetched ${newVideos.length} additional videos`);
     
     return {
       success: true,
-      videos: processedVideos,
-      count: processedVideos.length,
-      nextPageToken: data.nextPageToken,
-      totalResults: data.pageInfo?.totalResults || 0
+      videos: newVideos,
+      count: newVideos.length,
+      nextPageToken: playlistData.nextPageToken,
+      totalResults: playlistData.pageInfo?.totalResults || 0
     };
     
   } catch (error) {
-    console.error('❌ Error fetching more liked videos:', error);
+    console.error('❌ Error fetching more videos:', error);
     return {
       success: false,
       error: error.message
@@ -219,7 +279,54 @@ async function fetchMoreLikedVideos(pageToken) {
   }
 }
 
-// Export liked videos data - Fixed for service worker
+// Delete video from YouTube liked list using the API
+async function deleteVideoFromYouTube(videoId) {
+  try {
+    console.log('🗑️ Deleting video from YouTube:', videoId);
+    
+    const storage = await chrome.storage.local.get(['userToken', 'tokenExpiry']);
+    
+    if (!storage.userToken) {
+      throw new Error('Not authenticated. Please sign in first.');
+    }
+    
+    if (storage.tokenExpiry && Date.now() > storage.tokenExpiry) {
+      throw new Error('Token expired. Please sign in again.');
+    }
+    
+    // Use YouTube API to remove the like rating (set to 'none')
+    const response = await fetch(`${API_BASE}/videos/rate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${storage.userToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: `id=${videoId}&rating=none`
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('YouTube API delete error:', response.status, errorText);
+      throw new Error(`Failed to delete video from YouTube: ${response.status}`);
+    }
+    
+    console.log('✅ Video successfully removed from YouTube liked list');
+    
+    return {
+      success: true,
+      message: 'Video removed from YouTube liked list'
+    };
+    
+  } catch (error) {
+    console.error('❌ Error deleting video from YouTube:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Export liked videos data
 async function exportLikedVideos() {
   try {
     console.log('📤 Exporting liked videos...');
@@ -242,6 +349,7 @@ async function exportLikedVideos() {
         title: video.title,
         channelTitle: video.channelTitle,
         publishedAt: video.publishedAt,
+        likedAt: video.likedAt,
         videoId: video.id,
         url: video.url,
         viewCount: video.viewCount,
@@ -295,6 +403,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'fetchMoreVideos':
       fetchMoreLikedVideos(message.pageToken).then(sendResponse);
+      return true;
+      
+    case 'deleteVideo':
+      deleteVideoFromYouTube(message.videoId).then(sendResponse);
       return true;
       
     case 'exportData':
