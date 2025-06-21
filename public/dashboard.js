@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', () => {
   const videoList = document.getElementById('video-list');
   const loadingElement = document.getElementById('loading');
@@ -68,8 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         console.log('✅ Found videos:', videos.length);
         
-        // Add total count display
-        addTotalCountDisplay();
+        // Add simple total count text at the top
+        addTotalCountText();
         
         // Sort videos by latest first (using likedAt or publishedAt)
         sortVideosByLatest();
@@ -94,38 +95,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Add total count display at the top
-  function addTotalCountDisplay() {
+  // Add simple total count text at the top
+  function addTotalCountText() {
     // Remove existing total count if it exists
-    const existingCount = document.querySelector('.total-videos-count');
+    const existingCount = document.querySelector('.total-videos-text');
     if (existingCount) {
       existingCount.remove();
     }
     
     const totalCountElement = document.createElement('div');
-    totalCountElement.className = 'total-videos-count';
+    totalCountElement.className = 'total-videos-text';
     totalCountElement.style.cssText = `
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      margin-bottom: 24px;
       text-align: center;
-      font-size: 18px;
-      font-weight: 600;
-      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+      font-size: 16px;
+      color: #374151;
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f9fafb;
+      border-radius: 6px;
     `;
     
     const displayCount = Math.max(totalVideosCount, videos.length);
-    totalCountElement.innerHTML = `
-      <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M21 16V8C21 6.89543 20.1046 6 19 6H5C3.89543 6 3 6.89543 3 8V16C3 17.1046 3.89543 18 5 18H19C20.1046 18 21 17.1046 21 16Z" stroke="currentColor" stroke-width="2"/>
-          <path d="M10 9L15 12L10 15V9Z" fill="currentColor"/>
-        </svg>
-        <span>Total Liked Videos: <strong>${displayCount.toLocaleString()}</strong></span>
-      </div>
-    `;
+    totalCountElement.textContent = `Total Liked Videos: ${displayCount.toLocaleString()}`;
     
     // Insert before the dashboard header
     const dashboardHeader = document.querySelector('.dashboard-header');
@@ -157,24 +148,24 @@ document.addEventListener('DOMContentLoaded', () => {
       display: block;
       margin: 32px auto;
       padding: 12px 24px;
-      background: #f3f4f6;
-      border: 2px solid #e5e7eb;
+      background: #3b82f6;
+      border: none;
       border-radius: 8px;
-      color: #374151;
+      color: white;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
     `;
-    loadMoreBtn.textContent = `Load More Videos (${Math.max(0, totalVideosCount - videos.length)} remaining)`;
+    
+    const remainingCount = Math.max(0, totalVideosCount - videos.length);
+    loadMoreBtn.textContent = `Load More Videos (${remainingCount} remaining)`;
     
     loadMoreBtn.addEventListener('mouseenter', () => {
-      loadMoreBtn.style.background = '#e5e7eb';
-      loadMoreBtn.style.borderColor = '#d1d5db';
+      loadMoreBtn.style.background = '#2563eb';
     });
     
     loadMoreBtn.addEventListener('mouseleave', () => {
-      loadMoreBtn.style.background = '#f3f4f6';
-      loadMoreBtn.style.borderColor = '#e5e7eb';
+      loadMoreBtn.style.background = '#3b82f6';
     });
     
     loadMoreBtn.addEventListener('click', () => loadMoreVideos(pageToken));
@@ -221,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // Update display
-        addTotalCountDisplay();
+        addTotalCountText();
         renderVideos();
         
         // Update load more button
@@ -603,17 +594,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
   
-  // Delete a single video
+  // Delete a single video - Fixed to only remove from local storage, not YouTube
   function deleteVideo(videoId) {
-    chrome.runtime.sendMessage({ action: 'deleteVideo', videoId }, (response) => {
-      if (response && response.success) {
-        videos = videos.filter(video => video.id !== videoId);
-        selectedVideos.delete(videoId);
-        updateSelectionCount();
-        renderVideos();
-      } else {
-        alert('Failed to delete video. Please try again.');
-      }
+    console.log('🗑️ Removing video from local storage:', videoId);
+    
+    // Simply remove from local storage and update UI
+    videos = videos.filter(video => video.id !== videoId);
+    selectedVideos.delete(videoId);
+    
+    // Update storage
+    chrome.storage.local.set({ 
+      likedVideos: videos,
+      totalResults: totalVideosCount > 0 ? totalVideosCount - 1 : videos.length
+    }, () => {
+      console.log('✅ Video removed from local storage');
+      
+      // Update total count
+      totalVideosCount = Math.max(0, totalVideosCount - 1);
+      addTotalCountText();
+      
+      // Update UI
+      updateSelectionCount();
+      renderVideos();
+      
+      showToast('Video removed from your list');
     });
   }
   
@@ -662,39 +666,35 @@ document.addEventListener('DOMContentLoaded', () => {
     confirmationModal.style.display = 'none';
   }
   
-  // Delete selected videos
+  // Delete selected videos - Fixed to only remove from local storage
   function deleteSelectedVideos() {
     const totalToDelete = selectedVideos.size;
-    let deleted = 0;
-    let failed = 0;
-    
     const videoIds = Array.from(selectedVideos);
     
     hideDeleteConfirmation();
     
-    loadingElement.textContent = 'Deleting selected videos...';
-    loadingElement.style.display = 'block';
+    console.log('🗑️ Removing selected videos from local storage:', videoIds);
     
-    videoIds.forEach(videoId => {
-      chrome.runtime.sendMessage({ action: 'deleteVideo', videoId }, (response) => {
-        if (response && response.success) {
-          deleted++;
-        } else {
-          failed++;
-        }
-        
-        if (deleted + failed === totalToDelete) {
-          videos = videos.filter(video => !selectedVideos.has(video.id));
-          selectedVideos.clear();
-          updateSelectionCount();
-          loadingElement.style.display = 'none';
-          renderVideos();
-          
-          if (failed > 0) {
-            alert(`Successfully removed ${deleted} videos. Failed to remove ${failed} videos.`);
-          }
-        }
-      });
+    // Remove selected videos from the array
+    videos = videos.filter(video => !selectedVideos.has(video.id));
+    
+    // Update storage
+    chrome.storage.local.set({ 
+      likedVideos: videos,
+      totalResults: Math.max(0, totalVideosCount - totalToDelete)
+    }, () => {
+      console.log('✅ Selected videos removed from local storage');
+      
+      // Update total count
+      totalVideosCount = Math.max(0, totalVideosCount - totalToDelete);
+      addTotalCountText();
+      
+      // Clear selection and update UI
+      selectedVideos.clear();
+      updateSelectionCount();
+      renderVideos();
+      
+      showToast(`Removed ${totalToDelete} video${totalToDelete !== 1 ? 's' : ''} from your list`);
     });
   }
 });

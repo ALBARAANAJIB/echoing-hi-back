@@ -1,4 +1,3 @@
-
 // YouTube Enhancer Background Script with Modern Chrome Authentication
 console.log('🚀 YouTube Enhancer background script loaded');
 
@@ -135,20 +134,84 @@ async function fetchLikedVideos() {
       thumbnail: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || ''
     }));
     
-    // Store the videos
+    // Store the videos with pagination info
     await chrome.storage.local.set({
       likedVideos: processedVideos,
-      lastFetch: Date.now()
+      lastFetch: Date.now(),
+      nextPageToken: data.nextPageToken || null,
+      totalResults: data.pageInfo?.totalResults || processedVideos.length
     });
     
     return {
       success: true,
       videos: processedVideos,
-      count: processedVideos.length
+      count: processedVideos.length,
+      nextPageToken: data.nextPageToken,
+      totalResults: data.pageInfo?.totalResults || processedVideos.length
     };
     
   } catch (error) {
     console.error('❌ Error fetching liked videos:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Fetch more liked videos using pageToken
+async function fetchMoreLikedVideos(pageToken) {
+  try {
+    console.log('📺 Fetching more liked videos with pageToken:', pageToken);
+    
+    const storage = await chrome.storage.local.get(['userToken', 'tokenExpiry']);
+    
+    if (!storage.userToken) {
+      throw new Error('Not authenticated. Please sign in first.');
+    }
+    
+    if (storage.tokenExpiry && Date.now() > storage.tokenExpiry) {
+      throw new Error('Token expired. Please sign in again.');
+    }
+    
+    // Fetch more liked videos using YouTube Data API v3 with pageToken
+    const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&myRating=like&maxResults=50&pageToken=${pageToken}`, {
+      headers: {
+        'Authorization': `Bearer ${storage.userToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || `API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('✅ More liked videos fetched:', data.items?.length || 0);
+    
+    // Process videos with proper structure for dashboard
+    const processedVideos = (data.items || []).map(video => ({
+      id: video.id,
+      title: video.snippet?.title || 'Unknown Title',
+      channelTitle: video.snippet?.channelTitle || 'Unknown Channel',
+      publishedAt: video.snippet?.publishedAt || new Date().toISOString(),
+      likedAt: new Date().toISOString(), // We don't have actual liked date from API
+      url: `https://www.youtube.com/watch?v=${video.id}`,
+      viewCount: video.statistics?.viewCount || '0',
+      likeCount: video.statistics?.likeCount || '0',
+      thumbnail: video.snippet?.thumbnails?.medium?.url || video.snippet?.thumbnails?.default?.url || ''
+    }));
+    
+    return {
+      success: true,
+      videos: processedVideos,
+      count: processedVideos.length,
+      nextPageToken: data.nextPageToken,
+      totalResults: data.pageInfo?.totalResults || 0
+    };
+    
+  } catch (error) {
+    console.error('❌ Error fetching more liked videos:', error);
     return {
       success: false,
       error: error.message
@@ -228,6 +291,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       
     case 'fetchLikedVideos':
       fetchLikedVideos().then(sendResponse);
+      return true;
+      
+    case 'fetchMoreVideos':
+      fetchMoreLikedVideos(message.pageToken).then(sendResponse);
       return true;
       
     case 'exportData':
