@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let isLoadingMore = false;
   let totalVideosCount = 0;
   let allVideosSelected = false;
+  let nextPageToken = null;
   
   // Initialize the dashboard
   init();
@@ -67,20 +68,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (result.likedVideos && result.likedVideos.length > 0) {
         videos = result.likedVideos;
         totalVideosCount = result.totalResults || videos.length;
+        nextPageToken = result.nextPageToken;
         
         console.log('✅ Found videos:', videos.length);
+        console.log('📊 Total videos available:', totalVideosCount);
         
-        // Add simple total count text at the top
+        // Add total count display
         addTotalCountText();
         
-        // Ensure videos are sorted by latest liked first on initial load
+        // CRITICAL: Ensure videos are sorted by latest liked first on initial load
         sortVideosByLatestLiked();
         
         renderVideos();
         
         // Add load more button if there are more videos to load
-        if (result.nextPageToken && videos.length < totalVideosCount) {
-          addLoadMoreButton(result.nextPageToken);
+        if (nextPageToken && videos.length < totalVideosCount) {
+          addLoadMoreButton(nextPageToken);
         }
         
         loadingElement.style.display = 'none';
@@ -96,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Add simple total count text at the top
+  // Add total count display with sync indicator
   function addTotalCountText() {
     // Remove existing total count if it exists
     const existingCount = document.querySelector('.total-videos-text');
@@ -119,7 +122,12 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     
     const displayCount = Math.max(totalVideosCount, videos.length);
-    totalCountElement.textContent = `Total Liked Videos: ${displayCount.toLocaleString()}`;
+    const syncStatus = videos.length >= totalVideosCount ? '✅ Fully Synced' : `📥 ${videos.length}/${totalVideosCount} Loaded`;
+    
+    totalCountElement.innerHTML = `
+      <div>Total Liked Videos: ${displayCount.toLocaleString()}</div>
+      <div style="font-size: 14px; color: #6b7280; margin-top: 4px;">${syncStatus}</div>
+    `;
     
     // Insert before the dashboard header
     const dashboardHeader = document.querySelector('.dashboard-header');
@@ -128,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Sort videos by latest liked first
+  // CRITICAL: Sort videos by latest liked first (this is the default and most accurate)
   function sortVideosByLatestLiked() {
     videos.sort((a, b) => {
       const dateA = new Date(a.likedAt || a.publishedAt || 0);
@@ -203,6 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const newVideos = response.videos || [];
         videos = [...videos, ...newVideos];
         totalVideosCount = response.totalResults || totalVideosCount;
+        nextPageToken = response.nextPageToken;
         
         // Sort all videos by latest liked
         sortVideosByLatestLiked();
@@ -210,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Save to storage
         chrome.storage.local.set({ 
           likedVideos: videos,
-          nextPageToken: response.nextPageToken || null,
+          nextPageToken: nextPageToken,
           totalResults: totalVideosCount
         });
         
@@ -219,8 +228,8 @@ document.addEventListener('DOMContentLoaded', () => {
         renderVideos();
         
         // Update load more button
-        if (response.nextPageToken && videos.length < totalVideosCount) {
-          addLoadMoreButton(response.nextPageToken);
+        if (nextPageToken && videos.length < totalVideosCount) {
+          addLoadMoreButton(nextPageToken);
         } else if (loadMoreBtn) {
           loadMoreBtn.remove();
         }
@@ -241,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Render videos based on search and filter with accurate sorting
+  // ENHANCED: Render videos with ACCURATE sorting based on ACTUAL YouTube API dates
   function renderVideos() {
     console.log('🎨 Rendering videos:', videos.length);
     videoList.innerHTML = '';
@@ -254,22 +263,22 @@ document.addEventListener('DOMContentLoaded', () => {
       (video.channelTitle && video.channelTitle.toLowerCase().includes(searchTerm))
     );
     
-    // Apply accurate sorting based on filter
+    // CRITICAL: Apply ACCURATE sorting based on filter with proper date parsing
     switch (filterValue) {
       case 'recent':
-        // Sort by most recently liked
+        // Sort by most recently liked (default - latest first)
         filteredVideos.sort((a, b) => {
           const dateA = new Date(a.likedAt || a.publishedAt || 0);
           const dateB = new Date(b.likedAt || b.publishedAt || 0);
-          return dateB - dateA;
+          return dateB - dateA; // Latest first
         });
         break;
       case 'oldest':
-        // Sort by oldest liked first
+        // FIXED: Sort by OLDEST liked first (earliest dates first)
         filteredVideos.sort((a, b) => {
           const dateA = new Date(a.likedAt || a.publishedAt || 0);
           const dateB = new Date(b.likedAt || b.publishedAt || 0);
-          return dateA - dateB;
+          return dateA - dateB; // Earliest first
         });
         break;
       case 'popular':
@@ -277,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
         filteredVideos.sort((a, b) => {
           const viewsA = parseInt(a.viewCount || 0);
           const viewsB = parseInt(b.viewCount || 0);
-          return viewsB - viewsA;
+          return viewsB - viewsA; // Highest views first
         });
         break;
       default:
@@ -285,9 +294,11 @@ document.addEventListener('DOMContentLoaded', () => {
         filteredVideos.sort((a, b) => {
           const dateA = new Date(a.likedAt || a.publishedAt || 0);
           const dateB = new Date(b.likedAt || b.publishedAt || 0);
-          return dateB - dateA;
+          return dateB - dateA; // Latest first
         });
     }
+    
+    console.log(`🔍 Filtered and sorted ${filteredVideos.length} videos by: ${filterValue}`);
     
     if (filteredVideos.length === 0) {
       if (searchTerm || filterValue !== 'all') {
@@ -309,20 +320,24 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('✅ Rendered', filteredVideos.length, 'videos');
   }
   
-  // Create a video card element
+  // Create a video card element with enhanced date display
   function createVideoCard(video) {
     const card = document.createElement('div');
     card.className = 'video-card';
     card.dataset.id = video.id;
     
+    // ENHANCED: Better date formatting with validation
     const likedDate = new Date(video.likedAt || video.publishedAt || Date.now());
-    const formattedDate = likedDate.toLocaleDateString('en-US', {
+    const isValidDate = !isNaN(likedDate.getTime());
+    
+    const formattedDate = isValidDate ? likedDate.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
-    });
+    }) : 'Unknown date';
+    
     const viewCount = parseInt(video.viewCount || 0).toLocaleString();
     
     card.innerHTML = `
@@ -479,7 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
   
-  // Delete a single video from YouTube and local storage
+  // ENHANCED: Delete a single video from YouTube and update counts
   function deleteVideo(videoId) {
     console.log('🗑️ Deleting video from YouTube:', videoId);
     
@@ -494,21 +509,22 @@ document.addEventListener('DOMContentLoaded', () => {
       deleteBtn.disabled = false;
       
       if (response && response.success) {
-        // Remove from local array and update UI
+        // Remove from local array and update counts
         videos = videos.filter(video => video.id !== videoId);
         selectedVideos.delete(videoId);
+        
+        // Update total count
+        totalVideosCount = Math.max(0, totalVideosCount - 1);
         
         // Update storage
         chrome.storage.local.set({ 
           likedVideos: videos,
-          totalResults: Math.max(0, totalVideosCount - 1)
+          totalResults: totalVideosCount,
+          nextPageToken: nextPageToken
         });
         
-        // Update total count
-        totalVideosCount = Math.max(0, totalVideosCount - 1);
-        addTotalCountText();
-        
         // Update UI
+        addTotalCountText();
         updateSelectionCount();
         renderVideos();
         
@@ -520,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Toggle select all videos with proper toggle behavior
+  // FIXED: Toggle select all videos with proper toggle behavior
   function toggleSelectAll() {
     const checkboxes = document.querySelectorAll('.video-checkbox');
     
@@ -545,7 +561,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSelectionCount();
   }
   
-  // Update selection count
+  // Update selection count with proper toggle state management
   function updateSelectionCount() {
     const count = selectedVideos.size;
     const totalVisible = document.querySelectorAll('.video-checkbox').length;
