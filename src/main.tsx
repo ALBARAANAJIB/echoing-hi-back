@@ -2,7 +2,7 @@
 import { createRoot } from 'react-dom/client';
 import { StrictMode } from 'react';
 import App from './App.tsx';
-import { Toaster } from "@/components/ui/toaster";
+import { Toaster } from "sonner";
 import './index.css';
 
 try {
@@ -15,7 +15,7 @@ try {
   createRoot(rootElement).render(
     <StrictMode>
       <App />
-      <Toaster />
+      <Toaster position="top-right" richColors />
     </StrictMode>
   );
 } catch (error) {
