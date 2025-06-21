@@ -280,6 +280,119 @@ async function exportLikedVideos() {
   }
 }
 
+// Handle video removal from liked list - ACTUALLY DELETE FROM YOUTUBE
+if (request.action === 'deleteVideo') {
+  (async () => {
+    try {
+      const result = await chrome.storage.local.get(['userToken', 'likedVideos']);
+      if (!result.userToken) {
+        sendResponse({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      console.log(`🗑️ Deleting video ${request.videoId} from YouTube liked list...`);
+
+      // Call YouTube API to remove video from liked list by setting rating to 'none'
+      const response = await fetch(`${API_BASE}/videos/rate`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${result.userToken}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `id=${request.videoId}&rating=none`
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('YouTube API delete error:', response.status, errorText);
+        throw new Error(`Failed to delete video from YouTube: ${response.status}`);
+      }
+      
+      console.log('✅ Successfully removed video from YouTube liked list');
+      
+      // Update local storage to remove the video
+      if (result.likedVideos) {
+        const updatedVideos = result.likedVideos.filter(video => video.id !== request.videoId);
+        await chrome.storage.local.set({ 
+          likedVideos: updatedVideos,
+          totalResults: Math.max(0, (result.totalResults || result.likedVideos.length) - 1)
+        });
+        console.log('✅ Updated local storage');
+      }
+      
+      sendResponse({ success: true });
+    } catch (error) {
+      console.error('❌ Error deleting video:', error);
+      sendResponse({ success: false, error: error.message });
+    }
+  })();
+  return true; // Keep the message channel open for the async response
+}
+
+// Handle bulk video deletion from YouTube
+if (request.action === 'deleteMultipleVideos') {
+  (async () => {
+    try {
+      const result = await chrome.storage.local.get(['userToken', 'likedVideos']);
+      if (!result.userToken) {
+        sendResponse({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const videoIds = request.videoIds || [];
+      console.log(`🗑️ Bulk deleting ${videoIds.length} videos from YouTube...`);
+
+      let successCount = 0;
+      let failedVideos = [];
+
+      // Delete each video from YouTube
+      for (const videoId of videoIds) {
+        try {
+          const response = await fetch(`${API_BASE}/videos/rate`, {
+            method: 'POST',
+            headers: { 
+              'Authorization': `Bearer ${result.userToken}`,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: `id=${videoId}&rating=none`
+          });
+          
+          if (response.ok) {
+            successCount++;
+            console.log(`✅ Deleted video ${videoId} from YouTube`);
+          } else {
+            failedVideos.push(videoId);
+            console.error(`❌ Failed to delete video ${videoId}:`, response.status);
+          }
+        } catch (error) {
+          failedVideos.push(videoId);
+          console.error(`❌ Error deleting video ${videoId}:`, error);
+        }
+      }
+      
+      // Update local storage to remove successfully deleted videos
+      if (result.likedVideos && successCount > 0) {
+        const updatedVideos = result.likedVideos.filter(video => !videoIds.includes(video.id) || failedVideos.includes(video.id));
+        await chrome.storage.local.set({ 
+          likedVideos: updatedVideos,
+          totalResults: Math.max(0, (result.totalResults || result.likedVideos.length) - successCount)
+        });
+      }
+      
+      sendResponse({ 
+        success: true, 
+        successCount, 
+        failedCount: failedVideos.length,
+        failedVideos 
+      });
+    } catch (error) {
+      console.error('❌ Error in bulk delete:', error);
+      sendResponse({ success: false, error: error.message });
+    }
+  })();
+  return true;
+}
+
 // Message handling
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('📨 Background received message:', message);
