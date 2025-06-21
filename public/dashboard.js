@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let videos = [];
   let selectedVideos = new Set();
   let isLoadingMore = false;
+  let totalVideosCount = 0;
   
   // Initialize the dashboard
   init();
@@ -63,18 +64,21 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (result.likedVideos && result.likedVideos.length > 0) {
         videos = result.likedVideos;
+        totalVideosCount = result.totalResults || videos.length;
+        
         console.log('✅ Found videos:', videos.length);
+        
+        // Add total count display
+        addTotalCountDisplay();
+        
+        // Sort videos by latest first (using likedAt or publishedAt)
+        sortVideosByLatest();
+        
         renderVideos();
         
-        if (result.totalResults) {
-          const totalCount = document.createElement('div');
-          totalCount.className = 'total-count';
-          totalCount.textContent = `Showing ${videos.length} of ${result.totalResults} videos`;
-          videoList.parentNode.insertBefore(totalCount, videoList);
-          
-          if (result.nextPageToken) {
-            addLoadMoreButton(result.nextPageToken);
-          }
+        // Add load more button if there are more videos to load
+        if (result.nextPageToken && videos.length < totalVideosCount) {
+          addLoadMoreButton(result.nextPageToken);
         }
         
         loadingElement.style.display = 'none';
@@ -90,6 +94,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
+  // Add total count display at the top
+  function addTotalCountDisplay() {
+    // Remove existing total count if it exists
+    const existingCount = document.querySelector('.total-videos-count');
+    if (existingCount) {
+      existingCount.remove();
+    }
+    
+    const totalCountElement = document.createElement('div');
+    totalCountElement.className = 'total-videos-count';
+    totalCountElement.style.cssText = `
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: 600;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    `;
+    
+    const displayCount = Math.max(totalVideosCount, videos.length);
+    totalCountElement.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M21 16V8C21 6.89543 20.1046 6 19 6H5C3.89543 6 3 6.89543 3 8V16C3 17.1046 3.89543 18 5 18H19C20.1046 18 21 17.1046 21 16Z" stroke="currentColor" stroke-width="2"/>
+          <path d="M10 9L15 12L10 15V9Z" fill="currentColor"/>
+        </svg>
+        <span>Total Liked Videos: <strong>${displayCount.toLocaleString()}</strong></span>
+      </div>
+    `;
+    
+    // Insert before the dashboard header
+    const dashboardHeader = document.querySelector('.dashboard-header');
+    if (dashboardHeader) {
+      dashboardHeader.parentNode.insertBefore(totalCountElement, dashboardHeader);
+    }
+  }
+  
+  // Sort videos by latest first
+  function sortVideosByLatest() {
+    videos.sort((a, b) => {
+      const dateA = new Date(a.likedAt || a.publishedAt || 0);
+      const dateB = new Date(b.likedAt || b.publishedAt || 0);
+      return dateB - dateA; // Latest first
+    });
+  }
+  
   // Function to add a load more button
   function addLoadMoreButton(pageToken) {
     const existingBtn = document.getElementById('load-more');
@@ -100,7 +153,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadMoreBtn = document.createElement('button');
     loadMoreBtn.id = 'load-more';
     loadMoreBtn.className = 'secondary-button';
-    loadMoreBtn.textContent = 'Load More Videos';
+    loadMoreBtn.style.cssText = `
+      display: block;
+      margin: 32px auto;
+      padding: 12px 24px;
+      background: #f3f4f6;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      color: #374151;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    `;
+    loadMoreBtn.textContent = `Load More Videos (${Math.max(0, totalVideosCount - videos.length)} remaining)`;
+    
+    loadMoreBtn.addEventListener('mouseenter', () => {
+      loadMoreBtn.style.background = '#e5e7eb';
+      loadMoreBtn.style.borderColor = '#d1d5db';
+    });
+    
+    loadMoreBtn.addEventListener('mouseleave', () => {
+      loadMoreBtn.style.background = '#f3f4f6';
+      loadMoreBtn.style.borderColor = '#e5e7eb';
+    });
+    
     loadMoreBtn.addEventListener('click', () => loadMoreVideos(pageToken));
     
     loadMoreContainer.innerHTML = '';
@@ -114,7 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadMoreBtn = document.getElementById('load-more');
     if (loadMoreBtn) {
       loadMoreBtn.disabled = true;
-      loadMoreBtn.textContent = 'Loading...';
+      loadMoreBtn.textContent = 'Loading more videos...';
+      loadMoreBtn.style.opacity = '0.6';
     }
     
     isLoadingMore = true;
@@ -128,51 +205,44 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response && response.success) {
         console.log("Successfully loaded more videos:", response);
         
-        videos = [...videos, ...response.videos];
+        // Add new videos to existing array
+        const newVideos = response.videos || [];
+        videos = [...videos, ...newVideos];
+        totalVideosCount = response.totalResults || totalVideosCount;
         
+        // Sort all videos by latest
+        sortVideosByLatest();
+        
+        // Save to storage
         chrome.storage.local.set({ 
           likedVideos: videos,
-          nextPageToken: response.nextPageToken || null
+          nextPageToken: response.nextPageToken || null,
+          totalResults: totalVideosCount
         });
         
+        // Update display
+        addTotalCountDisplay();
         renderVideos();
         
-        if (response.nextPageToken) {
+        // Update load more button
+        if (response.nextPageToken && videos.length < totalVideosCount) {
           addLoadMoreButton(response.nextPageToken);
         } else if (loadMoreBtn) {
           loadMoreBtn.remove();
         }
         
-        const totalCount = document.querySelector('.total-count');
-        if (totalCount) {
-          totalCount.textContent = `Showing ${videos.length} of ${response.totalResults || videos.length} videos`;
-        }
+        // Show success message
+        showToast(`Loaded ${newVideos.length} more videos!`);
+        
       } else {
         console.error("Failed to load more videos:", response?.error || "Unknown error");
         if (loadMoreBtn) {
           loadMoreBtn.disabled = false;
-          loadMoreBtn.textContent = 'Try Again';
+          loadMoreBtn.textContent = `Load More Videos (${Math.max(0, totalVideosCount - videos.length)} remaining)`;
+          loadMoreBtn.style.opacity = '1';
         }
         
-        const errorMessage = document.createElement('div');
-        errorMessage.className = 'error-message';
-        errorMessage.textContent = response?.error || 'Failed to load more videos. Please try again.';
-        errorMessage.style.color = '#ea384c';
-        errorMessage.style.marginTop = '16px';
-        errorMessage.style.textAlign = 'center';
-        
-        const existingError = document.querySelector('.error-message');
-        if (existingError) {
-          existingError.remove();
-        }
-        
-        loadMoreContainer.appendChild(errorMessage);
-        
-        setTimeout(() => {
-          if (errorMessage.parentNode) {
-            errorMessage.remove();
-          }
-        }, 5000);
+        showToast('Failed to load more videos. Please try again.', 'error');
       }
     });
   }
@@ -190,18 +260,20 @@ document.addEventListener('DOMContentLoaded', () => {
       (video.channelTitle && video.channelTitle.toLowerCase().includes(searchTerm))
     );
     
+    // Apply sorting based on filter
     switch (filterValue) {
       case 'recent':
-        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt) - new Date(a.likedAt || a.publishedAt));
+        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt || 0) - new Date(a.likedAt || a.publishedAt || 0));
         break;
       case 'oldest':
-        filteredVideos.sort((a, b) => new Date(a.likedAt || a.publishedAt) - new Date(b.likedAt || b.publishedAt));
+        filteredVideos.sort((a, b) => new Date(a.likedAt || a.publishedAt || 0) - new Date(b.likedAt || b.publishedAt || 0));
         break;
       case 'popular':
         filteredVideos.sort((a, b) => parseInt(b.viewCount || 0) - parseInt(a.viewCount || 0));
         break;
       default:
-        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt) - new Date(a.likedAt || a.publishedAt));
+        // Default: most recent first
+        filteredVideos.sort((a, b) => new Date(b.likedAt || b.publishedAt || 0) - new Date(a.likedAt || a.publishedAt || 0));
     }
     
     if (filteredVideos.length === 0) {
@@ -231,7 +303,13 @@ document.addEventListener('DOMContentLoaded', () => {
     card.dataset.id = video.id;
     
     const likedDate = new Date(video.likedAt || video.publishedAt || Date.now());
-    const formattedDate = likedDate.toLocaleDateString();
+    const formattedDate = likedDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
     const viewCount = parseInt(video.viewCount || 0).toLocaleString();
     
     card.innerHTML = `
@@ -488,15 +566,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   
   // Show toast notification
-  function showToast(message) {
+  function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = 'toast-notification';
     toast.textContent = message;
+    const bgColor = type === 'error' ? '#ef4444' : '#10b981';
     toast.style.cssText = `
       position: fixed;
       top: 20px;
       right: 20px;
-      background: #10b981;
+      background: ${bgColor};
       color: white;
       padding: 12px 20px;
       border-radius: 8px;
